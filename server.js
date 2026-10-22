@@ -153,6 +153,26 @@ app.post('/members/:id/photo', verifyAdmin, upload.single('photo'), async (req, 
     });
 });
 
+app.delete('/members/:id/photo', verifyAdmin, (req, res) => {
+    db.get(`SELECT photo_path FROM members WHERE id = ?`, [req.params.id], (err, existing) => {
+        if (err) {
+            console.error('Error fetching member:', err.message);
+            return res.status(500).json({ error: 'Failed to remove photo.' });
+        }
+        if (!existing) return res.status(404).json({ error: 'Member not found' });
+        if (!existing.photo_path) return res.status(404).json({ error: 'Member has no photo' });
+
+        db.run(`UPDATE members SET photo_path = NULL WHERE id = ?`, [req.params.id], (err) => {
+            if (err) {
+                console.error('Error removing photo path:', err.message);
+                res.status(500).json({ error: 'Failed to remove photo.' });
+            } else {
+                removeFile(existing.photo_path);
+                res.status(200).json({ message: 'Photo removed.' });
+            }
+        });
+    });
+});
 
 app.get('/members', verifyAdmin, (req, res) => {
     const query = `SELECT * From members`;
