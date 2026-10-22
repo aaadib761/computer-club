@@ -519,12 +519,12 @@ app.put('/admin/username', verifyAdmin, async (req, res) => {
     });
 });
 
-app.delete('/admin/:id', verifyAdmin, (req, res) => {
+app.delete('/admin/:username', verifyAdmin, (req, res) => {
     // blocking self-delete also means the last admin can never be removed
-    if (Number(req.params.id) === req.user.id) {
+    if (req.params.username === req.user.username) {
         return res.status(400).json({ error: 'You cannot delete your own account.' });
     }
-    db.run(`DELETE FROM admins WHERE id = ?`, [req.params.id], function (err) {
+    db.run(`DELETE FROM admins WHERE username = ?`, [req.params.username], function (err) {
         if (err) {
             console.error('Error deleting admin:', err.message);
             res.status(500).json({ error: 'Failed to delete admin' });
