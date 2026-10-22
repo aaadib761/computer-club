@@ -56,8 +56,17 @@ function verifyAdmin(req, res, next) {
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) return res.status(403).json({ error: 'Invalid token' });
 
-        req.user = user;
-        next();
+        // the token can outlive the account, so make sure the admin still exists
+        db.get(`SELECT id, username FROM admins WHERE id = ?`, [user.id], (err, admin) => {
+            if (err) {
+                console.error('Error verifying admin:', err.message);
+                return res.status(500).json({ error: 'Failed to verify admin' });
+            }
+            if (!admin) return res.status(401).json({ error: 'Admin account no longer exists' });
+
+            req.user = admin;
+            next();
+        });
     })
 }
 
@@ -489,6 +498,24 @@ app.put('/admin/username', verifyAdmin, async (req, res) => {
         });
     });
 });
+
+app.delete('/admin/:id', verifyAdmin, (req, res) => {
+    // blocking self-delete also means the last admin can never be removed
+    if (Number(req.params.id) === req.user.id) {
+        return res.status(400).json({ error: 'You cannot delete your own account.' });
+    }
+    db.run(`DELETE FROM admins WHERE id = ?`, [req.params.id], function (err) {
+        if (err) {
+            console.error('Error deleting admin:', err.message);
+            res.status(500).json({ error: 'Failed to delete admin' });
+        } else if (this.changes === 0) {
+            res.status(404).json({ error: 'Admin not found' });
+        } else {
+            res.status(200).json({ message: 'Admin deleted' });
+        }
+    });
+});
+
 // join requests
 
 app.post('/join-requests', (req, res) => {
