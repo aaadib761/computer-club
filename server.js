@@ -46,6 +46,13 @@ const loginLimiter = rateLimit({
     max: 5,
     message: { error: 'Too many Login attempts. Please try again later.' }
 });
+// each public form gets its own counter, so one form can't use up the other's limit
+const formLimiter = () => rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { error: 'Too many submissions. Please try again later.' }
+});
+const MIN_PASSWORD_LENGTH = 8;
 
 function verifyAdmin(req, res, next) {
     const authHeader = req.headers['authorization'];
@@ -104,8 +111,9 @@ app.post('/members', verifyAdmin, (req, res) => {
     if (!name || !email) return res.status(400).json({ error: 'name and email required.' });
     const query = `INSERT INTO members (name, email, phone, position, position_rank) VALUES (?, ?, ?, ?, ?)`;
     db.run(query, [name, email, phone, position || null, position_rank || null], function (err) {
-        if (err) {
-
+        if (err && err.message.includes('UNIQUE')) {
+            res.status(409).json({ error: 'A member with this email already exists.' });
+        } else if (err) {
             console.error('Error inserting member:', err.message);
             res.status(500).json({ error: 'Failed to add member' });
         } else {
@@ -193,14 +201,28 @@ app.get('/members', verifyAdmin, (req, res) => {
     });
 });
 
+// public route, so only expose what the website shows (no email or phone)
 app.get('/members/executive', (req, res) => {
-    const query = `Select * From members WHERE position_rank IS NOT NULL ORDER BY position_rank ASC`;
+    const query = `SELECT id, name, position, position_rank, photo_path FROM members WHERE position_rank IS NOT NULL ORDER BY position_rank ASC`;
     db.all(query, [], (err, rows) => {
         if (err) {
             console.error('Error fetching executive members:', err.message);
             res.status(500).json({ error: 'Failed to fetch executive members' });
         } else {
             res.status(200).json(rows);
+        }
+    });
+});
+
+app.get('/members/:id', verifyAdmin, (req, res) => {
+    db.get(`SELECT * FROM members WHERE id = ?`, [req.params.id], (err, row) => {
+        if (err) {
+            console.error('Error fetching member:', err.message);
+            res.status(500).json({ error: 'Failed to fetch member' });
+        } else if (!row) {
+            res.status(404).json({ error: 'Member not found' });
+        } else {
+            res.status(200).json(row);
         }
     });
 });
@@ -226,7 +248,9 @@ app.put('/members/:id', verifyAdmin, (req, res) => {
 
         const query = `UPDATE members SET name = ?, email = ?, phone = ?, position = ?, position_rank = ? WHERE id = ?`;
         db.run(query, [name, email, phone, position, position_rank, memberId], function (err) {
-            if (err) {
+            if (err && err.message.includes('UNIQUE')) {
+                res.status(409).json({ error: 'A member with this email already exists.' });
+            } else if (err) {
                 console.error('Error updating member:', err.message);
                 res.status(500).json({ error: 'Failed to update member' });
             } else {
@@ -281,7 +305,7 @@ app.post('/events', verifyAdmin, (req, res) => {
     });
 });
 
-app.get('/events', verifyAdmin, (req, res) => {
+app.get('/events', (req, res) => {
     const query = `Select * From events`;
     db.all(query, [], (err, rows) => {
         if (err) {
@@ -291,6 +315,19 @@ app.get('/events', verifyAdmin, (req, res) => {
             res.status(500).json({ error: 'Failed to fetch events' });
         } else {
             res.status(200).json(rows);
+        }
+    });
+});
+
+app.get('/events/:id', (req, res) => {
+    db.get(`SELECT * FROM events WHERE id = ?`, [req.params.id], (err, row) => {
+        if (err) {
+            console.error('Error fetching event:', err.message);
+            res.status(500).json({ error: 'Failed to fetch event' });
+        } else if (!row) {
+            res.status(404).json({ error: 'Event not found' });
+        } else {
+            res.status(200).json(row);
         }
     });
 });
@@ -367,12 +404,19 @@ app.delete('/events/:id', verifyAdmin, (req, res) => {
 
 // attendance
 
+const ATTENDANCE_STATUSES = ['present', 'absent', 'late'];
+
 app.post('/attendance', verifyAdmin, (req, res) => {
     const { member_id, event_id, status } = req.body;
     if (!member_id || !event_id || !status) return res.status(400).json({ error: 'member_id, event_id and status required.' });
+    if (!ATTENDANCE_STATUSES.includes(status)) return res.status(400).json({ error: 'status must be present, absent or late.' });
     const query = `INSERT INTO attendance (member_id, event_id, status) VALUES (?, ?, ?)`;
     db.run(query, [member_id, event_id, status], function (err) {
-        if (err) {
+        if (err && err.message.includes('UNIQUE')) {
+            res.status(409).json({ error: 'Attendance for this member and event already exists.' });
+        } else if (err && err.message.includes('FOREIGN KEY')) {
+            res.status(404).json({ error: 'Member or event not found' });
+        } else if (err) {
             console.error('Error inserting attendance:', err.message);
             res.status(500).json({ error: 'Failed to add attendance' });
         } else {
@@ -397,6 +441,7 @@ app.get('/events/:id/attendance', verifyAdmin, (req, res) => {
 
 app.put('/attendance/:id', verifyAdmin, (req, res) => {
     const { status } = req.body;
+    if (!ATTENDANCE_STATUSES.includes(status)) return res.status(400).json({ error: 'status must be present, absent or late.' });
     db.run(`UPDATE attendance SET status = ? WHERE id = ?`, [status, req.params.id], function (err) {
         if (err) {
             console.error('Error updating attendance:', err.message);
@@ -429,11 +474,14 @@ app.delete('/attendance/:id', verifyAdmin, (req, res) => {
 app.post('/admin/register', verifyAdmin, async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+    if (password.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `password must be at least ${MIN_PASSWORD_LENGTH} characters` });
     const hashedPassword = await bcrypt.hash(password, 10);
     const query = `INSERT INTO admins (username, password) VALUES (?, ?)`;
     db.run(query, [username, hashedPassword], function (err) {
-        if (err) {
-            console.error('Error regsitering admin:', err.message);
+        if (err && err.message.includes('UNIQUE')) {
+            res.status(409).json({ error: 'That username is already taken.' });
+        } else if (err) {
+            console.error('Error registering admin:', err.message);
             res.status(500).json({ error: 'Failed to register admin' });
         } else {
             res.status(201).json({ id: this.lastID, username });
@@ -467,6 +515,7 @@ app.post('/admin/login', loginLimiter, (req, res) => {
 app.put('/admin/password', verifyAdmin, async (req, res) => {
     const { oldPassword, newPassword } = req.body;
     if (!oldPassword || !newPassword) return res.status(400).json({ error: 'oldPassword and newPassword required' });
+    if (newPassword.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `newPassword must be at least ${MIN_PASSWORD_LENGTH} characters` });
     const query = `SELECT * FROM admins WHERE id = ?`;
     db.get(query, [req.user.id], async (err, row) => {
         if (err) {
@@ -509,7 +558,9 @@ app.put('/admin/username', verifyAdmin, async (req, res) => {
         }
  
         db.run(`UPDATE admins SET username = ? WHERE id = ?`, [newUsername, req.user.id], function (err) {
-            if (err) {
+            if (err && err.message.includes('UNIQUE')) {
+                return res.status(409).json({ error: 'That username is already taken.' });
+            } else if (err) {
                 console.error('Error updating username:', err.message);
                 return res.status(500).json({ error: 'Failed to update username' });
             } else {
@@ -538,7 +589,7 @@ app.delete('/admin/:username', verifyAdmin, (req, res) => {
 
 // join requests
 
-app.post('/join-requests', (req, res) => {
+app.post('/join-requests', formLimiter(), (req, res) => {
     const { name, email, phone, reason } = req.body;
     if (!name || !email) return res.status(400).json({ error: 'name and email required.' });
 
@@ -570,14 +621,50 @@ app.put('/join-requests/:id', verifyAdmin, (req, res) => {
     if (!['pending', 'approved', 'rejected'].includes(status)) {
         return res.status(400).json({ error: 'status must be pending, approved or rejected.' });
     }
-    db.run(`UPDATE join_requests SET status = ? WHERE id = ?`, [status, req.params.id], function (err) {
+
+    db.get(`SELECT * FROM join_requests WHERE id = ?`, [req.params.id], (err, request) => {
         if (err) {
-            console.error('Error updating join request:', err.message);
-            res.status(500).json({ error: 'Failed to update request' });
+            console.error('Error fetching join request:', err.message);
+            return res.status(500).json({ error: 'Failed to update request' });
+        }
+        if (!request) return res.status(404).json({ error: 'request not found' });
+
+        const updateStatus = (memberId) => {
+            db.run(`UPDATE join_requests SET status = ? WHERE id = ?`, [status, req.params.id], (err) => {
+                if (err) {
+                    console.error('Error updating join request:', err.message);
+                    res.status(500).json({ error: 'Failed to update request' });
+                } else {
+                    res.status(200).json({ id: req.params.id, status, member_id: memberId });
+                }
+            });
+        };
+
+        // approving a request turns the applicant into a member
+        if (status !== 'approved' || request.status === 'approved') return updateStatus(undefined);
+
+        db.run(`INSERT INTO members (name, email, phone) VALUES (?, ?, ?)`, [request.name, request.email, request.phone], function (err) {
+            if (err && err.message.includes('UNIQUE')) {
+                return res.status(409).json({ error: 'A member with this email already exists.' });
+            }
+            if (err) {
+                console.error('Error creating member from join request:', err.message);
+                return res.status(500).json({ error: 'Failed to create member' });
+            }
+            updateStatus(this.lastID);
+        });
+    });
+});
+
+app.delete('/join-requests/:id', verifyAdmin, (req, res) => {
+    db.run(`DELETE FROM join_requests WHERE id = ?`, [req.params.id], function (err) {
+        if (err) {
+            console.error('Error deleting join request:', err.message);
+            res.status(500).json({ error: 'Failed to delete request' });
         } else if (this.changes === 0) {
             res.status(404).json({ error: 'request not found' });
         } else {
-            res.status(200).json({ id: req.params.id, status });
+            res.status(200).json({ message: 'Join request deleted' });
         }
     });
 });
@@ -585,7 +672,7 @@ app.put('/join-requests/:id', verifyAdmin, (req, res) => {
 // contact messages
 
 
-app.post('/contact', (req, res) => {
+app.post('/contact', formLimiter(), (req, res) => {
     const { name, email, message } = req.body;
     if (!name || !email || !message) return res.status(400).json({ error: 'name, email and message required.' });
     const query = `INSERT INTO contact_messages (name, email, message) VALUES (?, ?, ?)`;
@@ -606,6 +693,19 @@ app.get('/contact', verifyAdmin, (req, res) => {
             res.status(500).json({ error: 'Failed to fetch message' });
         } else {
             res.status(200).json(rows);
+        }
+    });
+});
+
+app.delete('/contact/:id', verifyAdmin, (req, res) => {
+    db.run(`DELETE FROM contact_messages WHERE id = ?`, [req.params.id], function (err) {
+        if (err) {
+            console.error('Error deleting message:', err.message);
+            res.status(500).json({ error: 'Failed to delete message' });
+        } else if (this.changes === 0) {
+            res.status(404).json({ error: 'Message not found' });
+        } else {
+            res.status(200).json({ message: 'Message deleted' });
         }
     });
 });
@@ -690,6 +790,17 @@ app.post('/events/:id/photos', verifyAdmin, upload.single('photo'), async (req, 
     const watermarkedPath = 'uploads/wm-' + req.file.filename;
     const { caption } = req.body;
 
+    const event = await new Promise((resolve) => {
+        db.get(`SELECT id FROM events WHERE id = ?`, [eventId], (err, row) => {
+            if (err) console.error('Error fetching event:', err.message);
+            resolve(err ? undefined : row);
+        });
+    });
+    if (!event) {
+        removeFile(originalPath);
+        return res.status(404).json({ error: 'Event not found' });
+    }
+
     try {
         await addWatermark(originalPath, watermarkedPath, 'Developed by Abdullah Ahsan');
     } catch (err) {
@@ -722,6 +833,26 @@ app.get('/events/:id/photos', (req, res) => {
         } else {
             res.status(200).json(rows);
         }
+    });
+});
+
+app.delete('/events/:id/photos/:photoId', verifyAdmin, (req, res) => {
+    db.get(`SELECT photo_path FROM event_photos WHERE id = ? AND event_id = ?`, [req.params.photoId, req.params.id], (err, photo) => {
+        if (err) {
+            console.error('Error fetching event photo:', err.message);
+            return res.status(500).json({ error: 'Failed to delete photo' });
+        }
+        if (!photo) return res.status(404).json({ error: 'Photo not found' });
+
+        db.run(`DELETE FROM event_photos WHERE id = ?`, [req.params.photoId], (err) => {
+            if (err) {
+                console.error('Error deleting event photo:', err.message);
+                res.status(500).json({ error: 'Failed to delete photo' });
+            } else {
+                removeFile(photo.photo_path);
+                res.status(200).json({ message: 'Photo deleted' });
+            }
+        });
     });
 });
 

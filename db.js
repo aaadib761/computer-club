@@ -60,6 +60,11 @@ db.serialize(() => {
                 console.log('Attendance table created or already exists.');
             }
         });
+
+    // one attendance record per member per event
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS attendance_member_event ON attendance (member_id, event_id)`, (err) => {
+        if (err) console.error('Error creating attendance index:', err.message);
+    });
     db.run(`CREATE TABLE IF NOT EXISTS admins (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL UNIQUE,
