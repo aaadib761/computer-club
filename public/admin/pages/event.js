@@ -1,0 +1,166 @@
+renderAdminLayout('events.html');
+
+const eventId = new URLSearchParams(location.search).get('id');
+let members = [];
+let records = [];   // attendance rows for this event
+
+const list = document.getElementById('attendance');
+const search = document.getElementById('search');
+const photoForm = document.getElementById('photo-form');
+const grid = document.getElementById('photo-grid');
+
+async function loadEvent() {
+    try {
+        const event = await adminApi(`/events/${encodeURIComponent(eventId)}`);
+        document.title = `${event.title} | NDUB Admin`;
+        document.getElementById('title').textContent = event.title;
+        document.getElementById('subtitle').innerHTML =
+            `${formatDate(event.date)} · <a href="../event.html?id=${encodeURIComponent(event.id)}" target="_blank" rel="noopener">View on website</a>`;
+        return true;
+    } catch (err) {
+        document.getElementById('title').textContent = 'Event not found';
+        document.querySelectorAll('main section').forEach(s => s.classList.add('hidden'));
+        return false;
+    }
+}
+
+// ---------- attendance ----------
+
+async function loadAttendance() {
+    try {
+        [members, records] = await Promise.all([
+            adminApi('/members'),
+            adminApi(`/events/${encodeURIComponent(eventId)}/attendance`),
+        ]);
+        renderAttendance();
+    } catch (err) {
+        list.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function recordFor(memberId) {
+    return records.find(r => r.member_id === memberId);
+}
+
+function renderAttendance() {
+    const counts = { present: 0, absent: 0, late: 0 };
+    records.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
+    document.getElementById('summary').textContent =
+        `${counts.present} present · ${counts.late} late · ${counts.absent} absent · ${members.length - records.length} not marked`;
+
+    const q = search.value.trim().toLowerCase();
+    const shown = members.filter(m => m.name.toLowerCase().includes(q));
+    if (!members.length) {
+        list.innerHTML = '<div class="empty">No members yet. <a href="members.html">Add members</a> first.</div>';
+        return;
+    }
+    if (!shown.length) {
+        list.innerHTML = '<div class="empty">No members match your search.</div>';
+        return;
+    }
+    list.innerHTML = shown.map(m => {
+        const status = recordFor(m.id)?.status;
+        const btn = (value, label) =>
+            `<button type="button" data-member="${m.id}" data-status="${value}" class="${status === value ? 'on-' + value : ''}" aria-pressed="${status === value}">${label}</button>`;
+        return `
+            <div class="row">
+                ${avatarHtml(m)}
+                <div class="row-main">
+                    <h3>${escapeHtml(m.name)}</h3>
+                    <p class="meta">${m.position ? escapeHtml(m.position) : 'Member'}</p>
+                </div>
+                <div class="seg" role="group" aria-label="Attendance for ${escapeHtml(m.name)}">
+                    ${btn('present', 'Present')}${btn('late', 'Late')}${btn('absent', 'Absent')}
+                </div>
+            </div>`;
+    }).join('');
+}
+
+search.addEventListener('input', renderAttendance);
+
+list.addEventListener('click', async (e) => {
+    const button = e.target.closest('button[data-status]');
+    if (!button) return;
+    const memberId = Number(button.dataset.member);
+    const status = button.dataset.status;
+    const existing = recordFor(memberId);
+
+    try {
+        if (!existing) {
+            const created = await adminApi('/attendance', {
+                method: 'POST',
+                body: { member_id: memberId, event_id: Number(eventId), status },
+            });
+            records.push({ ...created, member_id: memberId });
+        } else if (existing.status === status) {
+            // clicking the active status clears it
+            await adminApi(`/attendance/${existing.id}`, { method: 'DELETE' });
+            records = records.filter(r => r.id !== existing.id);
+        } else {
+            await adminApi(`/attendance/${existing.id}`, { method: 'PUT', body: { status } });
+            existing.status = status;
+        }
+        renderAttendance();
+    } catch (err) {
+        toast(err.message, 'error');
+    }
+});
+
+// ---------- photos ----------
+
+async function loadPhotos() {
+    try {
+        const photos = await adminApi(`/events/${encodeURIComponent(eventId)}/photos`);
+        grid.innerHTML = photos.length
+            ? photos.map(p => `
+                <figure>
+                    <img src="${escapeHtml(photoUrl(p.photo_path))}" alt="${escapeHtml(p.caption || '')}" loading="lazy">
+                    <button class="btn btn-sm btn-danger" data-photo="${p.id}" aria-label="Delete photo">Delete</button>
+                    ${p.caption ? `<figcaption>${escapeHtml(p.caption)}</figcaption>` : ''}
+                </figure>`).join('')
+            : '<div class="empty" style="grid-column: 1 / -1;">No photos yet.</div>';
+    } catch (err) {
+        grid.innerHTML = `<div class="empty" style="grid-column: 1 / -1;">${escapeHtml(err.message)}</div>`;
+    }
+}
+
+photoForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const files = [...photoForm.elements.photos.files];
+    const caption = photoForm.elements.caption.value.trim();
+    if (!files.length) return showMessage(photoForm.querySelector('.form-message'), 'error', 'Please choose at least one photo.');
+
+    submitting(photoForm, async () => {
+        // the server takes one photo per request, so send them one by one
+        let done = 0;
+        for (const file of files) {
+            const body = new FormData();
+            body.append('photo', file);
+            if (caption) body.append('caption', caption);
+            await adminApi(`/events/${encodeURIComponent(eventId)}/photos`, { method: 'POST', body });
+            done++;
+        }
+        toast(done === 1 ? 'Photo uploaded' : `${done} photos uploaded`);
+        photoForm.reset();
+        photoForm.querySelector('.form-message').className = 'form-message hidden';
+        loadPhotos();
+    });
+});
+
+grid.addEventListener('click', async (e) => {
+    const button = e.target.closest('button[data-photo]');
+    if (!button || !confirm('Delete this photo?')) return;
+    try {
+        await adminApi(`/events/${encodeURIComponent(eventId)}/photos/${button.dataset.photo}`, { method: 'DELETE' });
+        toast('Photo deleted');
+        loadPhotos();
+    } catch (err) {
+        toast(err.message, 'error');
+    }
+});
+
+loadEvent().then(found => {
+    if (!found) return;
+    loadAttendance();
+    loadPhotos();
+});
