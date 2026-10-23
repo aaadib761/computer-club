@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join Requests | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+    <main class="admin-main">
+        <h1>Join Requests</h1>
+        <p class="page-sub">Approving a request adds the person to Members automatically.</p>
+
+        <div class="toolbar">
+            <select id="filter" aria-label="Which requests">
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="all">All</option>
+            </select>
+        </div>
+        <div id="list" class="list"><div class="loading">Loading…</div></div>
+    </main>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script>
+        renderAdminLayout('requests.html');
+
+        let requests = [];
+        const list = document.getElementById('list');
+        const filter = document.getElementById('filter');
+
+        async function load() {
+            try {
+                requests = await adminApi('/join-requests');
+                render();
+                refreshNavCounts();
+            } catch (err) {
+                list.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        function render() {
+            const shown = filter.value === 'all' ? requests : requests.filter(r => r.status === filter.value);
+            if (!shown.length) {
+                list.innerHTML = `<div class="empty">No ${filter.value === 'all' ? '' : filter.value + ' '}requests.</div>`;
+                return;
+            }
+            list.innerHTML = shown.map(r => `
+                <div class="row">
+                    <div class="row-main">
+                        <h3>${escapeHtml(r.name)} ${statusBadge(r.status)}</h3>
+                        <p class="meta">
+                            ${escapeHtml(r.email)}
+                            ${r.phone ? ` · ${escapeHtml(r.phone)}` : ''}
+                            · ${formatDate(r.created_at, { isUtc: true })}
+                        </p>
+                        ${r.reason ? `<p class="row-text">“${escapeHtml(r.reason)}”</p>` : ''}
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-ghost" data-copy="${escapeHtml(r.email)}">Copy email</button>
+                        ${r.status !== 'approved' ? `<button class="btn btn-sm" data-action="approved" data-id="${r.id}">Approve</button>` : ''}
+                        ${r.status !== 'rejected' ? `<button class="btn btn-sm btn-ghost" data-action="rejected" data-id="${r.id}">Reject</button>` : ''}
+                        <button class="btn btn-sm btn-danger" data-action="delete" data-id="${r.id}">Delete</button>
+                    </div>
+                </div>`).join('');
+        }
+
+        filter.addEventListener('change', render);
+
+        list.addEventListener('click', async (e) => {
+            const button = e.target.closest('button[data-action]');
+            if (!button) return;
+            const request = requests.find(r => r.id === Number(button.dataset.id));
+            const action = button.dataset.action;
+
+            try {
+                if (action === 'delete') {
+                    if (!confirm(`Delete the request from ${request.name}?`)) return;
+                    await adminApi(`/join-requests/${request.id}`, { method: 'DELETE' });
+                    toast('Request deleted');
+                } else {
+                    const result = await adminApi(`/join-requests/${request.id}`, { method: 'PUT', body: { status: action } });
+                    toast(action === 'approved'
+                        ? (result.member_id ? `${request.name} approved and added to Members` : `${request.name} approved`)
+                        : `${request.name} rejected`);
+                }
+                load();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+
+        load();
+    </script>
+</body>
+</html>

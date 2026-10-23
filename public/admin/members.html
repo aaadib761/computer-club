@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Members | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+    <main class="admin-main">
+        <h1>Members</h1>
+        <p class="page-sub">Give a member a position and rank to show them on the public Committee page.</p>
+
+        <div class="toolbar">
+            <input type="search" id="search" placeholder="Search name, email, position…" aria-label="Search members">
+            <div class="btn-group">
+                <div class="view-switch" role="group" aria-label="View">
+                    <button type="button" data-view="list" aria-pressed="true">☰ List</button>
+                    <button type="button" data-view="grid" aria-pressed="false">▦ Grid</button>
+                </div>
+                <button class="btn" id="add-btn">+ Add member</button>
+            </div>
+        </div>
+        <div id="list" class="list"><div class="loading">Loading members…</div></div>
+    </main>
+
+    <dialog class="modal" id="member-dialog">
+        <form id="member-form" novalidate>
+            <h2 id="member-dialog-title">Add member</h2>
+            <div class="form-message hidden" role="status"></div>
+            <div class="field">
+                <label for="m-name">Full name</label>
+                <input id="m-name" name="name" required maxlength="100">
+            </div>
+            <div class="field">
+                <label for="m-email">Email</label>
+                <input id="m-email" name="email" type="email" required maxlength="150">
+            </div>
+            <div class="field">
+                <label for="m-phone">Phone <small>(optional)</small></label>
+                <input id="m-phone" name="phone" type="tel" maxlength="30">
+            </div>
+            <div class="field-row">
+                <div class="field">
+                    <label for="m-position">Position <small>(optional)</small></label>
+                    <input id="m-position" name="position" maxlength="60" placeholder="e.g. President">
+                </div>
+                <div class="field">
+                    <label for="m-rank">Rank <small>(optional)</small></label>
+                    <input id="m-rank" name="position_rank" type="number" min="1" step="1" placeholder="e.g. 1">
+                </div>
+            </div>
+            <p class="hint" style="margin-top:-8px;">Rank 1 shows first on the Committee page. Leave rank empty to hide someone from it.</p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn">Save</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="modal" id="photo-dialog">
+        <form id="photo-form">
+            <h2>Photo for <span id="photo-name"></span></h2>
+            <div class="form-message hidden" role="status"></div>
+            <div id="photo-current" style="margin-bottom: 16px;"></div>
+            <div class="field">
+                <label for="photo-file">Choose a new photo <small>(JPG, PNG or WEBP, max 5 MB)</small></label>
+                <input id="photo-file" name="photo" type="file" accept="image/jpeg,image/png,image/webp" required>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-danger" id="photo-remove">Remove photo</button>
+                <span style="flex:1"></span>
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn">Upload</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script>
+        renderAdminLayout('members.html');
+
+        let members = null;   // null until loaded
+        let editingId = null;
+        let photoMemberId = null;
+
+        const list = document.getElementById('list');
+        const search = document.getElementById('search');
+        const memberDialog = document.getElementById('member-dialog');
+        const memberForm = document.getElementById('member-form');
+        const photoDialog = document.getElementById('photo-dialog');
+        const photoForm = document.getElementById('photo-form');
+
+        async function load() {
+            try {
+                members = await adminApi('/members');
+                render();
+            } catch (err) {
+                list.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        function render() {
+            if (!members) return;
+            const q = search.value.trim().toLowerCase();
+            const shown = members.filter(m =>
+                [m.name, m.email, m.phone, m.position].some(v => (v || '').toLowerCase().includes(q)));
+
+            list.className = view === 'grid' ? 'member-grid' : 'list';
+            if (!shown.length) {
+                list.innerHTML = `<div class="empty" style="grid-column: 1 / -1;">${members.length ? 'No members match your search.' : 'No members yet. Add the first one!'}</div>`;
+                return;
+            }
+            if (view === 'grid') {
+                list.innerHTML = shown.map(m => `
+                    <div class="tile">
+                        ${m.photo_path
+                            ? `<img class="tile-photo" src="${escapeHtml(photoUrl(m.photo_path))}" alt="" loading="lazy">`
+                            : `<div class="tile-photo" aria-hidden="true">${escapeHtml(initials(m.name))}</div>`}
+                        <div class="tile-body">
+                            <h3>${escapeHtml(m.name)}</h3>
+                            ${m.position ? `<span class="badge badge-role">${escapeHtml(m.position)}${m.position_rank ? ` · #${m.position_rank}` : ''}</span>` : ''}
+                            <p class="meta">${escapeHtml(m.email)}</p>
+                            ${m.phone ? `<p class="meta">${escapeHtml(m.phone)}</p>` : ''}
+                        </div>
+                        <div class="tile-actions">
+                            <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${m.id}">Edit</button>
+                            <button class="btn btn-sm btn-ghost" data-action="photo" data-id="${m.id}">Photo</button>
+                            <button class="btn btn-sm btn-danger" data-action="delete" data-id="${m.id}" aria-label="Delete ${escapeHtml(m.name)}">🗑</button>
+                        </div>
+                    </div>`).join('');
+                return;
+            }
+            list.innerHTML = shown.map(m => `
+                <div class="row">
+                    ${avatarHtml(m)}
+                    <div class="row-main">
+                        <h3>${escapeHtml(m.name)}
+                            ${m.position ? `<span class="badge badge-role">${escapeHtml(m.position)}${m.position_rank ? ` · #${m.position_rank}` : ''}</span>` : ''}
+                        </h3>
+                        <p class="meta">${escapeHtml(m.email)}${m.phone ? ` · ${escapeHtml(m.phone)}` : ''}</p>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${m.id}">Edit</button>
+                        <button class="btn btn-sm btn-ghost" data-action="photo" data-id="${m.id}">Photo</button>
+                        <button class="btn btn-sm btn-danger" data-action="delete" data-id="${m.id}">Delete</button>
+                    </div>
+                </div>`).join('');
+        }
+
+        search.addEventListener('input', render);
+
+        // list or grid, remembered in this browser
+        const VIEW_KEY = 'ndubcc_members_view';
+        let view = storageGet(VIEW_KEY) === 'grid' ? 'grid' : 'list';
+        const viewButtons = document.querySelectorAll('[data-view]');
+        function setView(next) {
+            view = next;
+            storageSet(VIEW_KEY, view);
+            viewButtons.forEach(b => {
+                b.classList.toggle('active', b.dataset.view === view);
+                b.setAttribute('aria-pressed', b.dataset.view === view);
+            });
+            render();
+        }
+        viewButtons.forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+        setView(view);
+
+        document.getElementById('add-btn').addEventListener('click', () => {
+            editingId = null;
+            document.getElementById('member-dialog-title').textContent = 'Add member';
+            memberForm.reset();
+            openModal(memberDialog);
+        });
+
+        list.addEventListener('click', async (e) => {
+            const button = e.target.closest('button[data-action]');
+            if (!button) return;
+            const member = members.find(m => m.id === Number(button.dataset.id));
+
+            if (button.dataset.action === 'edit') {
+                editingId = member.id;
+                document.getElementById('member-dialog-title').textContent = 'Edit member';
+                fillForm(memberForm, member);
+                openModal(memberDialog);
+            }
+
+            if (button.dataset.action === 'photo') {
+                photoMemberId = member.id;
+                document.getElementById('photo-name').textContent = member.name;
+                document.getElementById('photo-current').innerHTML = member.photo_path
+                    ? `<img src="${escapeHtml(photoUrl(member.photo_path))}" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:50%;">`
+                    : '<p class="meta">No photo yet.</p>';
+                document.getElementById('photo-remove').classList.toggle('hidden', !member.photo_path);
+                photoForm.reset();
+                openModal(photoDialog);
+            }
+
+            if (button.dataset.action === 'delete') {
+                if (!confirm(`Delete ${member.name}? Their attendance records and photo will be deleted too.`)) return;
+                try {
+                    await adminApi(`/members/${member.id}`, { method: 'DELETE' });
+                    toast('Member deleted');
+                    load();
+                } catch (err) {
+                    toast(err.message, 'error');
+                }
+            }
+        });
+
+        memberForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = memberForm.querySelector('.form-message');
+            if (memberForm.querySelector(':invalid')) {
+                return showMessage(message, 'error', 'Please enter a name and a valid email.');
+            }
+            const data = readForm(memberForm);
+            const body = {
+                name: data.name,
+                email: data.email,
+                phone: data.phone || null,
+                position: data.position || null,
+                position_rank: data.position_rank ? Number(data.position_rank) : null,
+            };
+            submitting(memberForm, async () => {
+                if (editingId) {
+                    await adminApi(`/members/${editingId}`, { method: 'PUT', body });
+                    toast('Member updated');
+                } else {
+                    await adminApi('/members', { method: 'POST', body });
+                    toast('Member added');
+                }
+                memberDialog.close();
+                load();
+            });
+        });
+
+        photoForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const file = photoForm.elements.photo.files[0];
+            if (!file) return showMessage(photoForm.querySelector('.form-message'), 'error', 'Please choose a photo first.');
+            const body = new FormData();
+            body.append('photo', file);
+            submitting(photoForm, async () => {
+                await adminApi(`/members/${photoMemberId}/photo`, { method: 'POST', body });
+                toast('Photo uploaded');
+                photoDialog.close();
+                load();
+            });
+        });
+
+        document.getElementById('photo-remove').addEventListener('click', async () => {
+            if (!confirm('Remove this photo?')) return;
+            try {
+                await adminApi(`/members/${photoMemberId}/photo`, { method: 'DELETE' });
+                toast('Photo removed');
+                photoDialog.close();
+                load();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+
+        load();
+    </script>
+</body>
+</html>

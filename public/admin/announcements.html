@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Announcements | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+    <main class="admin-main">
+        <h1>Announcements</h1>
+        <p class="page-sub">The newest announcements show first on the website's home page.</p>
+
+        <div class="toolbar">
+            <span></span>
+            <button class="btn" id="add-btn">+ New announcement</button>
+        </div>
+        <div id="list" class="list"><div class="loading">Loading…</div></div>
+    </main>
+
+    <dialog class="modal" id="dialog">
+        <form id="form" novalidate>
+            <h2 id="dialog-title">New announcement</h2>
+            <div class="form-message hidden" role="status"></div>
+            <div class="field">
+                <label for="a-title">Title</label>
+                <input id="a-title" name="title" required maxlength="150">
+            </div>
+            <div class="field">
+                <label for="a-body">Message</label>
+                <textarea id="a-body" name="body" required maxlength="3000"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn">Publish</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script>
+        renderAdminLayout('announcements.html');
+
+        let announcements = [];
+        let editingId = null;
+        const list = document.getElementById('list');
+        const dialog = document.getElementById('dialog');
+        const form = document.getElementById('form');
+
+        async function load() {
+            try {
+                announcements = await adminApi('/announcements');
+                list.innerHTML = announcements.length
+                    ? announcements.map(a => `
+                        <div class="row">
+                            <div class="row-main">
+                                <h3>${escapeHtml(a.title)}</h3>
+                                <p class="meta">Posted ${formatDate(a.posted_at, { isUtc: true })}</p>
+                                <p class="row-text">${escapeHtml(a.body)}</p>
+                            </div>
+                            <div class="btn-group">
+                                <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${a.id}">Edit</button>
+                                <button class="btn btn-sm btn-danger" data-action="delete" data-id="${a.id}">Delete</button>
+                            </div>
+                        </div>`).join('')
+                    : '<div class="empty">No announcements yet.</div>';
+            } catch (err) {
+                list.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        document.getElementById('add-btn').addEventListener('click', () => {
+            editingId = null;
+            document.getElementById('dialog-title').textContent = 'New announcement';
+            form.reset();
+            openModal(dialog);
+        });
+
+        list.addEventListener('click', async (e) => {
+            const button = e.target.closest('button[data-action]');
+            if (!button) return;
+            const item = announcements.find(a => a.id === Number(button.dataset.id));
+
+            if (button.dataset.action === 'edit') {
+                editingId = item.id;
+                document.getElementById('dialog-title').textContent = 'Edit announcement';
+                fillForm(form, item);
+                openModal(dialog);
+            }
+            if (button.dataset.action === 'delete') {
+                if (!confirm(`Delete "${item.title}"?`)) return;
+                try {
+                    await adminApi(`/announcements/${item.id}`, { method: 'DELETE' });
+                    toast('Announcement deleted');
+                    load();
+                } catch (err) {
+                    toast(err.message, 'error');
+                }
+            }
+        });
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (form.querySelector(':invalid')) {
+                return showMessage(form.querySelector('.form-message'), 'error', 'Please enter a title and a message.');
+            }
+            const { title, body } = readForm(form);
+            submitting(form, async () => {
+                if (editingId) {
+                    await adminApi(`/announcements/${editingId}`, { method: 'PUT', body: { title, body } });
+                    toast('Announcement updated');
+                } else {
+                    await adminApi('/announcements', { method: 'POST', body: { title, body } });
+                    toast('Announcement published');
+                }
+                dialog.close();
+                load();
+            });
+        });
+
+        load();
+    </script>
+</body>
+</html>

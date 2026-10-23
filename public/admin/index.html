@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+    <main class="admin-main">
+        <h1 id="greeting">Dashboard</h1>
+        <p class="page-sub">Here's what's happening in the club.</p>
+
+        <div class="stat-cards">
+            <a class="stat-card" href="members.html"><b id="stat-members">–</b><span>Members</span></a>
+            <a class="stat-card" href="events.html"><b id="stat-upcoming">–</b><span>Upcoming events</span></a>
+            <a class="stat-card" href="requests.html"><b id="stat-requests">–</b><span>Pending join requests</span></a>
+            <a class="stat-card" href="messages.html"><b id="stat-messages">–</b><span>Messages</span></a>
+        </div>
+
+        <div class="section-title"><h2>Pending join requests</h2><a href="requests.html">See all &rarr;</a></div>
+        <div id="pending" class="list"><div class="loading">Loading…</div></div>
+
+        <div class="section-title" style="margin-top: 28px;"><h2>Next events</h2><a href="events.html">See all &rarr;</a></div>
+        <div id="next-events" class="list"><div class="loading">Loading…</div></div>
+    </main>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script>
+        const admin = renderAdminLayout('index.html');
+        if (admin) document.getElementById('greeting').textContent = `Hello, ${admin.username} 👋`;
+
+        async function loadDashboard() {
+            try {
+                const [members, events, requests, messages] = await Promise.all([
+                    adminApi('/members'), adminApi('/events'), adminApi('/join-requests'), adminApi('/contact'),
+                ]);
+                const pending = requests.filter(r => r.status === 'pending');
+                const upcoming = events.filter(e => isUpcoming(e.date)).sort((a, b) => parseDate(a.date) - parseDate(b.date));
+
+                document.getElementById('stat-members').textContent = members.length;
+                document.getElementById('stat-upcoming').textContent = upcoming.length;
+                document.getElementById('stat-requests').textContent = pending.length;
+                document.getElementById('stat-messages').textContent = messages.length;
+
+                document.getElementById('pending').innerHTML = pending.length
+                    ? pending.slice(0, 5).map(r => `
+                        <div class="row">
+                            <div class="row-main">
+                                <h3>${escapeHtml(r.name)}</h3>
+                                <p class="meta">${escapeHtml(r.email)} · ${formatDate(r.created_at, { isUtc: true, withTime: false })}</p>
+                            </div>
+                            <a class="btn btn-sm" href="requests.html">Review</a>
+                        </div>`).join('')
+                    : '<div class="empty">No pending requests. 🎉</div>';
+
+                document.getElementById('next-events').innerHTML = upcoming.length
+                    ? upcoming.slice(0, 3).map(e => `
+                        <div class="row">
+                            ${dateBadge(e.date)}
+                            <div class="row-main">
+                                <h3>${escapeHtml(e.title)}</h3>
+                                <p class="meta">${formatDate(e.date)}</p>
+                            </div>
+                            <a class="btn btn-sm btn-ghost" href="event.html?id=${encodeURIComponent(e.id)}">Attendance &amp; photos</a>
+                        </div>`).join('')
+                    : '<div class="empty">No upcoming events. <a href="events.html">Add one</a></div>';
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        }
+
+        loadDashboard();
+    </script>
+</body>
+</html>

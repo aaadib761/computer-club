@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+    <main class="admin-main">
+        <h1>Settings</h1>
+        <p class="page-sub">Club info, your account, appearance, data and security.</p>
+
+        <!-- club info -->
+        <section class="settings-section">
+            <h2>🏫 Club info</h2>
+            <p class="meta">Shown on the website's Contact page and footer. Leave a field empty to hide it.</p>
+            <form id="club-form" class="card" novalidate>
+                <div class="form-message hidden" role="status"></div>
+                <div class="field-row">
+                    <div class="field">
+                        <label for="c-email">Contact email</label>
+                        <input id="c-email" name="contact_email" type="email" maxlength="150" placeholder="club@example.com">
+                    </div>
+                    <div class="field">
+                        <label for="c-phone">Phone</label>
+                        <input id="c-phone" name="contact_phone" type="tel" maxlength="30" placeholder="+880 1XXX-XXXXXX">
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="c-address">Address</label>
+                    <input id="c-address" name="address" maxlength="200" placeholder="Notre Dame University Bangladesh, Motijheel, Dhaka">
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label for="c-facebook">Facebook link</label>
+                        <input id="c-facebook" name="facebook" type="url" maxlength="300" placeholder="https://facebook.com/...">
+                    </div>
+                    <div class="field">
+                        <label for="c-instagram">Instagram link</label>
+                        <input id="c-instagram" name="instagram" type="url" maxlength="300" placeholder="https://instagram.com/...">
+                    </div>
+                </div>
+                <div class="field-row">
+                    <div class="field">
+                        <label for="c-linkedin">LinkedIn link</label>
+                        <input id="c-linkedin" name="linkedin" type="url" maxlength="300" placeholder="https://linkedin.com/...">
+                    </div>
+                    <div class="field">
+                        <label for="c-github">GitHub link</label>
+                        <input id="c-github" name="github" type="url" maxlength="300" placeholder="https://github.com/...">
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="c-youtube">YouTube link</label>
+                    <input id="c-youtube" name="youtube" type="url" maxlength="300" placeholder="https://youtube.com/...">
+                </div>
+                <button class="btn" type="submit">Save club info</button>
+            </form>
+        </section>
+
+        <!-- account -->
+        <section class="settings-section">
+            <h2>👤 Your account</h2>
+            <p class="meta">Changing your password logs you out on every other device.</p>
+            <div class="grid grid-2">
+                <form id="username-form" class="card" novalidate>
+                    <h3>Change username</h3>
+                    <div class="form-message hidden" role="status"></div>
+                    <div class="field">
+                        <label for="new-username">New username</label>
+                        <input id="new-username" name="newUsername" required maxlength="50" autocomplete="username">
+                    </div>
+                    <div class="field">
+                        <label for="current-password-u">Current password</label>
+                        <input id="current-password-u" name="currentPassword" type="password" required autocomplete="current-password">
+                    </div>
+                    <button class="btn" type="submit">Change username</button>
+                </form>
+
+                <form id="password-form" class="card" novalidate>
+                    <h3>Change password</h3>
+                    <div class="form-message hidden" role="status"></div>
+                    <div class="field">
+                        <label for="old-password">Current password</label>
+                        <input id="old-password" name="oldPassword" type="password" required autocomplete="current-password">
+                    </div>
+                    <div class="field">
+                        <label for="new-password">New password <small>(at least 8 characters)</small></label>
+                        <input id="new-password" name="newPassword" type="password" required minlength="8" autocomplete="new-password">
+                    </div>
+                    <div class="field">
+                        <label for="confirm-password">Repeat new password</label>
+                        <input id="confirm-password" name="confirmPassword" type="password" required minlength="8" autocomplete="new-password">
+                    </div>
+                    <button class="btn" type="submit">Change password</button>
+                </form>
+            </div>
+        </section>
+
+        <!-- appearance -->
+        <section class="settings-section">
+            <h2>🎨 Appearance</h2>
+            <div class="card switch-row">
+                <div>
+                    <h3 style="margin: 0;">Dark mode</h3>
+                    <p class="meta" style="margin: 0;">Only for the admin panel, and only in this browser.</p>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="dark-toggle" aria-label="Dark mode">
+                    <span></span>
+                </label>
+            </div>
+        </section>
+
+        <!-- export -->
+        <section class="settings-section">
+            <h2>📥 Export data</h2>
+            <p class="meta">Downloads a spreadsheet (CSV) that opens in Excel or Google Sheets. Handy for backups and reports.</p>
+            <div class="export-grid">
+                <button class="btn btn-ghost" data-export="members">👥 Members</button>
+                <button class="btn btn-ghost" data-export="attendance">✅ Attendance</button>
+                <button class="btn btn-ghost" data-export="join-requests">✋ Join requests</button>
+                <button class="btn btn-ghost" data-export="messages">✉️ Messages</button>
+            </div>
+        </section>
+
+        <!-- security -->
+        <section class="settings-section">
+            <h2>🔒 Security</h2>
+            <div class="card switch-row" style="margin-bottom: 20px;">
+                <div>
+                    <h3 style="margin: 0;">Log out everywhere</h3>
+                    <p class="meta" style="margin: 0;">Ends your sessions on every device, including this one. Use it if you logged in on a shared computer.</p>
+                </div>
+                <button class="btn btn-danger" id="logout-all-btn" style="flex: none;">Log out everywhere</button>
+            </div>
+
+            <div class="section-title">
+                <h3 style="margin: 0;">Admins</h3>
+                <button class="btn btn-sm" id="add-admin-btn">+ Add admin</button>
+            </div>
+            <p class="meta">Every admin can manage everything. You can remove other admins, but not yourself.</p>
+            <div id="admins" class="list"><div class="loading">Loading…</div></div>
+        </section>
+    </main>
+
+    <dialog class="modal" id="admin-dialog">
+        <form id="admin-form" novalidate>
+            <h2>Add admin</h2>
+            <div class="form-message hidden" role="status"></div>
+            <div class="field">
+                <label for="a-username">Username</label>
+                <input id="a-username" name="username" required maxlength="50" autocomplete="off">
+            </div>
+            <div class="field">
+                <label for="a-password">Password <small>(at least 8 characters)</small></label>
+                <input id="a-password" name="password" type="password" required minlength="8" autocomplete="new-password">
+                <p class="hint">Share it with them privately and ask them to change it after logging in.</p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn">Add admin</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script>
+        const me = renderAdminLayout('settings.html');
+
+        // ---------- club info ----------
+
+        const clubForm = document.getElementById('club-form');
+
+        async function loadClubInfo() {
+            try {
+                fillForm(clubForm, await api('/settings'));
+            } catch (err) {
+                showMessage(clubForm.querySelector('.form-message'), 'error', err.message);
+            }
+        }
+
+        clubForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = clubForm.querySelector('.form-message');
+            const invalid = clubForm.querySelector(':invalid');
+            if (invalid) {
+                invalid.focus();
+                return showMessage(message, 'error', `Please check "${invalid.labels[0].textContent}". Links must start with https://`);
+            }
+            submitting(clubForm, async () => {
+                await adminApi('/settings', { method: 'PUT', body: readForm(clubForm) });
+                showMessage(message, 'success', 'Club info saved. It now shows on the website.');
+            });
+        });
+
+        // ---------- account ----------
+
+        const usernameForm = document.getElementById('username-form');
+        const passwordForm = document.getElementById('password-form');
+
+        usernameForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = usernameForm.querySelector('.form-message');
+            const data = readForm(usernameForm);
+            if (!data.newUsername || !data.currentPassword) return showMessage(message, 'error', 'Please fill in both fields.');
+            submitting(usernameForm, async () => {
+                await adminApi('/admin/username', { method: 'PUT', body: data });
+                storageSet(NAME_KEY, data.newUsername);
+                usernameForm.reset();
+                showMessage(message, 'success', `Username changed to ${data.newUsername}.`);
+                document.querySelector('.admin-user b').textContent = data.newUsername;
+                loadAdmins();
+            });
+        });
+
+        passwordForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = passwordForm.querySelector('.form-message');
+            const data = readForm(passwordForm);
+            if (!data.oldPassword || !data.newPassword) return showMessage(message, 'error', 'Please fill in all fields.');
+            if (data.newPassword.length < 8) return showMessage(message, 'error', 'The new password must be at least 8 characters.');
+            if (data.newPassword !== data.confirmPassword) return showMessage(message, 'error', "The new passwords don't match.");
+            submitting(passwordForm, async () => {
+                const result = await adminApi('/admin/password', {
+                    method: 'PUT',
+                    body: { oldPassword: data.oldPassword, newPassword: data.newPassword },
+                });
+                // the old token stopped working; keep this browser logged in with the new one
+                storageSet(TOKEN_KEY, result.token);
+                passwordForm.reset();
+                showMessage(message, 'success', 'Password changed. Other devices have been logged out.');
+                loadAdmins();
+            });
+        });
+
+        // ---------- appearance ----------
+
+        const darkToggle = document.getElementById('dark-toggle');
+        darkToggle.checked = document.body.classList.contains('dark');
+        darkToggle.addEventListener('change', () => setDarkMode(darkToggle.checked));
+
+        // ---------- export ----------
+
+        document.querySelectorAll('[data-export]').forEach(button => {
+            button.addEventListener('click', async () => {
+                const label = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Preparing…';
+                try {
+                    const admin = currentAdmin();
+                    if (!admin) return logout('expired');
+                    const res = await fetch(`/export/${button.dataset.export}`, {
+                        headers: { Authorization: `Bearer ${admin.token}` },
+                    });
+                    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export failed');
+                    const name = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'export.csv';
+                    const url = URL.createObjectURL(await res.blob());
+                    const link = Object.assign(document.createElement('a'), { href: url, download: name });
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    toast(`Downloaded ${name}`);
+                } catch (err) {
+                    toast(err.message, 'error');
+                } finally {
+                    button.disabled = false;
+                    button.textContent = label;
+                }
+            });
+        });
+
+        // ---------- security ----------
+
+        document.getElementById('logout-all-btn').addEventListener('click', async () => {
+            if (!confirm('Log out on every device, including this one?')) return;
+            try {
+                await adminApi('/admin/logout-all', { method: 'POST' });
+                logout();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+
+        const adminDialog = document.getElementById('admin-dialog');
+        const adminForm = document.getElementById('admin-form');
+        const adminsList = document.getElementById('admins');
+
+        async function loadAdmins() {
+            try {
+                const admins = await adminApi('/admins');
+                const when = value => (value ? formatDate(value, { isUtc: true }) : 'never');
+                adminsList.innerHTML = admins.map(a => `
+                    <div class="row">
+                        <div class="avatar" aria-hidden="true">${escapeHtml(initials(a.username))}</div>
+                        <div class="row-main">
+                            <h3>${escapeHtml(a.username)} ${a.id === me.id ? '<span class="badge badge-role">you</span>' : ''}</h3>
+                            <p class="meta">
+                                Admin since ${formatDate(a.created_at, { isUtc: true, withTime: false })}
+                                · Last login: ${when(a.last_login_at)}
+                                · Password changed: ${when(a.password_changed_at)}
+                            </p>
+                        </div>
+                        ${a.id === me.id ? '' : `<button class="btn btn-sm btn-danger" data-username="${escapeHtml(a.username)}">Remove</button>`}
+                    </div>`).join('');
+            } catch (err) {
+                adminsList.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        adminsList.addEventListener('click', async (e) => {
+            const button = e.target.closest('button[data-username]');
+            if (!button) return;
+            const username = button.dataset.username;
+            if (!confirm(`Remove admin "${username}"? They will lose access immediately.`)) return;
+            try {
+                await adminApi(`/admin/${encodeURIComponent(username)}`, { method: 'DELETE' });
+                toast(`${username} removed`);
+                loadAdmins();
+            } catch (err) {
+                toast(err.message, 'error');
+            }
+        });
+
+        document.getElementById('add-admin-btn').addEventListener('click', () => {
+            adminForm.reset();
+            openModal(adminDialog);
+        });
+
+        adminForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = adminForm.querySelector('.form-message');
+            const data = readForm(adminForm);
+            if (!data.username) return showMessage(message, 'error', 'Please enter a username.');
+            if ((data.password || '').length < 8) return showMessage(message, 'error', 'The password must be at least 8 characters.');
+            submitting(adminForm, async () => {
+                await adminApi('/admin/register', { method: 'POST', body: data });
+                toast(`${data.username} added as admin`);
+                adminDialog.close();
+                loadAdmins();
+            });
+        });
+
+        if (me) {
+            loadClubInfo();
+            loadAdmins();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Committee | NDUB Computer Club</title>
+    <link rel="icon" href="images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header id="site-header"></header>
+
+    <main>
+        <section class="page-head">
+            <div class="container">
+                <h1>Executive Committee</h1>
+                <p>The team leading NDUB Computer Club.</p>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="container">
+                <div id="committee" class="grid grid-3">
+                    <div class="loading">Loading committee…</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer id="site-footer"></footer>
+
+    <script src="js/common.js"></script>
+    <script>
+        async function loadCommittee() {
+            const box = document.getElementById('committee');
+            try {
+                const members = await api('/members/executive');
+                if (members.length === 0) {
+                    box.innerHTML = '<div class="empty">The committee will be announced soon.</div>';
+                    return;
+                }
+                box.innerHTML = members.map(m => `
+                    <article class="card member-card">
+                        ${m.photo_path
+                            ? `<img class="avatar" src="${escapeHtml(photoUrl(m.photo_path))}" alt="${escapeHtml(m.name)}" loading="lazy">`
+                            : `<div class="avatar" aria-hidden="true">${escapeHtml(initials(m.name))}</div>`}
+                        <h3>${escapeHtml(m.name)}</h3>
+                        <p class="role">${escapeHtml(m.position || 'Member')}</p>
+                    </article>`).join('');
+            } catch (err) {
+                box.innerHTML = `<div class="empty">Couldn't load the committee. ${escapeHtml(err.message)}</div>`;
+            }
+        }
+
+        loadCommittee();
+    </script>
+</body>
+</html>

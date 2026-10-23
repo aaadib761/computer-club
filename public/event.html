@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event | NDUB Computer Club</title>
+    <link rel="icon" href="images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header id="site-header"></header>
+
+    <main>
+        <section class="page-head">
+            <div class="container">
+                <p style="margin-bottom: 8px;"><a href="events.html">&larr; All events</a></p>
+                <h1 id="event-title">Loading…</h1>
+                <p id="event-date"></p>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="container">
+                <div id="event-body"></div>
+
+                <h2 style="margin-top: 32px;">Photo Gallery</h2>
+                <div id="gallery" class="gallery">
+                    <div class="loading" style="grid-column: 1 / -1;">Loading photos…</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer id="site-footer"></footer>
+
+    <script src="js/common.js"></script>
+    <script src="js/lightbox.js"></script>
+    <script>
+        setupLightbox(document.getElementById('gallery'));
+
+        const eventId = new URLSearchParams(location.search).get('id');
+
+        async function loadEvent() {
+            const title = document.getElementById('event-title');
+            const date = document.getElementById('event-date');
+            const body = document.getElementById('event-body');
+            const gallery = document.getElementById('gallery');
+
+            if (!eventId) {
+                title.textContent = 'Event not found';
+                gallery.innerHTML = '';
+                return;
+            }
+
+            try {
+                const [event, photos] = await Promise.all([
+                    api(`/events/${encodeURIComponent(eventId)}`),
+                    api(`/events/${encodeURIComponent(eventId)}/photos`),
+                ]);
+
+                document.title = `${event.title} | NDUB Computer Club`;
+                title.textContent = event.title;
+                date.innerHTML = `${formatDate(event.date)} ${isUpcoming(event.date) ? '&middot; <b style="color: var(--orange-dark);">Upcoming</b>' : ''}`;
+                body.innerHTML = event.description
+                    ? `<div class="card"><p class="text-pre" style="margin:0;">${escapeHtml(event.description)}</p></div>`
+                    : '';
+
+                gallery.innerHTML = photos.length
+                    ? photos.map(p => `
+                        <figure>
+                            <a href="${escapeHtml(photoUrl(p.photo_path))}" data-caption="${escapeHtml(p.caption || '')}">
+                                <img src="${escapeHtml(photoUrl(p.photo_path))}" alt="${escapeHtml(p.caption || event.title)}" loading="lazy">
+                            </a>
+                            ${p.caption ? `<figcaption>${escapeHtml(p.caption)}</figcaption>` : ''}
+                        </figure>`).join('')
+                    : '<div class="empty" style="grid-column: 1 / -1;">No photos for this event yet.</div>';
+            } catch (err) {
+                title.textContent = 'Event not found';
+                date.textContent = "This event doesn't exist or may have been removed.";
+                gallery.innerHTML = '';
+                document.querySelector('#gallery').previousElementSibling.classList.add('hidden');
+            }
+        }
+
+        loadEvent();
+    </script>
+</body>
+</html>

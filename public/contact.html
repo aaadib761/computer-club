@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact | NDUB Computer Club</title>
+    <link rel="icon" href="images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header id="site-header"></header>
+
+    <main>
+        <section class="page-head">
+            <div class="container">
+                <h1>Contact Us</h1>
+                <p>Questions, ideas or collaboration? Send us a message.</p>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="container contact-layout">
+                <aside id="club-info" class="card hidden">
+                    <h2 style="font-size: 1.2rem;">Reach us</h2>
+                    <ul class="info-list" id="club-info-list"></ul>
+                </aside>
+                <form id="contact-form" class="card form-card" novalidate>
+                    <div class="form-message hidden" role="status"></div>
+
+                    <div class="field">
+                        <label for="name">Your name</label>
+                        <input id="name" name="name" type="text" required maxlength="100" autocomplete="name">
+                    </div>
+                    <div class="field">
+                        <label for="email">Email</label>
+                        <input id="email" name="email" type="email" required maxlength="150" autocomplete="email">
+                    </div>
+                    <div class="field">
+                        <label for="message">Message</label>
+                        <textarea id="message" name="message" required maxlength="2000"></textarea>
+                    </div>
+
+                    <button class="btn" type="submit">Send Message</button>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <footer id="site-footer"></footer>
+
+    <script src="js/common.js"></script>
+    <script>
+        setupForm('contact-form', '/contact', "Thanks! Your message was sent. We'll reply as soon as we can.");
+
+        clubInfo().then(info => {
+            const items = [];
+            if (info.contact_email) items.push(`<li>✉️ <a href="mailto:${escapeHtml(info.contact_email)}">${escapeHtml(info.contact_email)}</a></li>`);
+            if (info.contact_phone) items.push(`<li>📞 <a href="tel:${escapeHtml(info.contact_phone.replace(/[^\d+]/g, ''))}">${escapeHtml(info.contact_phone)}</a></li>`);
+            if (info.address) items.push(`<li>📍 ${escapeHtml(info.address)}</li>`);
+            socialLinks(info).forEach(l => items.push(`<li>🔗 <a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${l.label}</a></li>`));
+            if (!items.length) return;
+            document.getElementById('club-info-list').innerHTML = items.join('');
+            document.getElementById('club-info').classList.remove('hidden');
+        });
+    </script>
+</body>
+</html>
