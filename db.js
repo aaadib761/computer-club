@@ -76,8 +76,35 @@ db.serialize(() => {
         } else {
             console.log('admins table created or already exists.');
         }
-        
-    });   
+
+    });
+
+    // columns added later for Settings > Security; older databases get them added here
+    db.all(`PRAGMA table_info(admins)`, (err, columns) => {
+        if (err) return console.error('Error reading admins columns:', err.message);
+        const existing = columns.map(c => c.name);
+        const wanted = {
+            token_version: 'INTEGER NOT NULL DEFAULT 0',  // bumping it logs the admin out everywhere
+            last_login_at: 'DATETIME',
+            password_changed_at: 'DATETIME',
+        };
+        db.serialize(() => {
+            Object.entries(wanted).forEach(([name, type]) => {
+                if (existing.includes(name)) return;
+                db.run(`ALTER TABLE admins ADD COLUMN ${name} ${type}`, (err) => {
+                    if (err) console.error(`Error adding admins.${name}:`, err.message);
+                });
+            });
+        });
+    });
+
+    // club info edited in Settings (contact email, social links...), one row per item
+    db.run(`CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )`, (err) => {
+        if (err) console.error('Error creating settings table:', err.message);
+    });
 
     db.run(`CREATE TABLE IF NOT EXISTS join_requests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

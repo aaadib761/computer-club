@@ -64,17 +64,25 @@ function verifyAdmin(req, res, next) {
         if (err) return res.status(403).json({ error: 'Invalid token' });
 
         // the token can outlive the account, so make sure the admin still exists
-        db.get(`SELECT id, username FROM admins WHERE id = ?`, [user.id], (err, admin) => {
+        db.get(`SELECT id, username, token_version FROM admins WHERE id = ?`, [user.id], (err, admin) => {
             if (err) {
                 console.error('Error verifying admin:', err.message);
                 return res.status(500).json({ error: 'Failed to verify admin' });
             }
             if (!admin) return res.status(401).json({ error: 'Admin account no longer exists' });
+            // "log out everywhere" and password changes bump token_version, which retires older tokens
+            if ((user.tv || 0) !== admin.token_version) {
+                return res.status(401).json({ error: 'Session ended. Please log in again.' });
+            }
 
             req.user = admin;
             next();
         });
     })
+}
+
+function signAdminToken(admin) {
+    return jwt.sign({ id: admin.id, username: admin.username, tv: admin.token_version || 0 }, JWT_SECRET, { expiresIn: '1h' });
 }
 
 function removeFile(filePath) {
@@ -84,25 +92,34 @@ function removeFile(filePath) {
     });
 }
 
-async function addWatermark(inputPath, outputPath, text) {
-    const image = sharp(inputPath);
-    const metadata = await image.metadata();
-    const svgText = `
-    <svg width="${metadata.width}" height="${metadata.height}">
-     <text x="${metadata.width-10}" y="${metadata.height-10}"
-     font-family="Arial" font-size="20" fill="white"
-     fill-opacity="0.7" text-anchor="end">
-     ${text}
-     </text>
-     </svg>
-     `;
-       await image
-       .composite([{ input: Buffer.from(svgText), gravity: 'southeast'}])
-       .toFile(outputPath);
+const WATERMARK_TEXT = 'NDUB Computer Club';
+
+// Saves an uploaded image: turns phone photos the right way up, drops hidden
+// metadata (like GPS location), and adds the club watermark if asked.
+async function processImage(inputPath, outputPath, { watermark = false } = {}) {
+    const image = sharp(inputPath).rotate();
+    if (watermark) {
+        const { width, height, orientation } = await sharp(inputPath).metadata();
+        // EXIF orientations 5-8 mean the photo is turned sideways, so width and height swap
+        const [w, h] = orientation >= 5 ? [height, width] : [width, height];
+        // size by the longer side so tall and wide photos get the same size text
+        const fontSize = Math.max(16, Math.round(Math.max(w, h) * 0.025));
+        const svgText = `
+            <svg width="${w}" height="${h}">
+                <text x="${w - fontSize * 0.6}" y="${h - fontSize * 0.6}"
+                    font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="bold"
+                    fill="white" fill-opacity="0.75" stroke="black" stroke-opacity="0.25" stroke-width="1"
+                    text-anchor="end">${WATERMARK_TEXT}</text>
+            </svg>`;
+        image.composite([{ input: Buffer.from(svgText) }]);
+    }
+    await image.toFile(outputPath);
 }
 
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
+// the website; pages keep their .html extension so they never clash with API routes like /events
+app.use(express.static('public'));
 
 // members
 
@@ -126,12 +143,13 @@ app.post('/members/:id/photo', verifyAdmin, upload.single('photo'), async (req, 
     if (!req.file) return res.status(400).json({ error: 'Failed to upload the image.' });
 
     const originalPath = req.file.path;
-    const watermarkedPath = 'uploads/wm-' + req.file.filename;
+    // member portraits stay clean: no watermark
+    const photoPath = 'uploads/photo-' + req.file.filename;
 
     try {
-        await addWatermark(originalPath, watermarkedPath, 'Developed by Abdullah Ahsan');
+        await processImage(originalPath, photoPath);
     } catch (err) {
-        console.error('Error watermarking image:', err.message);
+        console.error('Error processing image:', err.message);
         removeFile(originalPath);
         return res.status(500).json({ error: 'Failed to process image.' });
     }
@@ -140,22 +158,22 @@ app.post('/members/:id/photo', verifyAdmin, upload.single('photo'), async (req, 
     db.get(`SELECT photo_path FROM members WHERE id = ?`, [req.params.id], (err, existing) => {
         if (err) {
             console.error('Error fetching member:', err.message);
-            removeFile(watermarkedPath);
+            removeFile(photoPath);
             return res.status(500).json({ error: 'Failed to save photo.' });
         }
         if (!existing) {
-            removeFile(watermarkedPath);
+            removeFile(photoPath);
             return res.status(404).json({ error: 'Member not found' });
         }
 
-        db.run(`UPDATE members SET photo_path = ? WHERE id = ?`, [watermarkedPath, req.params.id], function (err) {
+        db.run(`UPDATE members SET photo_path = ? WHERE id = ?`, [photoPath, req.params.id], function (err) {
             if (err) {
                 console.error('Error saving photo path:', err.message);
-                removeFile(watermarkedPath);
+                removeFile(photoPath);
                 res.status(500).json({ error: 'Failed to save photo.' });
             } else {
                 removeFile(existing.photo_path);
-                res.status(200).json({ id: req.params.id, photo_path: watermarkedPath });
+                res.status(200).json({ id: req.params.id, photo_path: photoPath });
             }
         });
     });
@@ -183,20 +201,14 @@ app.delete('/members/:id/photo', verifyAdmin, (req, res) => {
 });
 
 app.get('/members', verifyAdmin, (req, res) => {
-    const query = `SELECT * From members`;
+    // committee members first (by rank), then everyone else by name
+    const query = `SELECT * FROM members ORDER BY position_rank IS NULL, position_rank, name COLLATE NOCASE`;
     db.all(query, [], (err, rows) => {
         if (err) {
             console.error('Error fetching members:', err.message);
             res.status(500).json({ error: 'Failed to fetch members' });
         } else {
-            const cleaned = rows.map(member => {
-                if (!member.position) {
-                    const { position, position_rank, photo_path, ...rest } = member;
-                    return rest;
-                }
-                return member;
-            });
-            res.status(200).json(cleaned);
+            res.status(200).json(rows);
         }
     });
 });
@@ -505,8 +517,10 @@ app.post('/admin/login', loginLimiter, (req, res) => {
             if (!isPasswordValid) {
                 res.status(401).json({ error: 'Invalid username or password' });
             } else {
-                const token = jwt.sign({ id: rows.id, username: rows.username }, JWT_SECRET, { expiresIn: '1h' });
-                res.status(200).json({ token });
+                db.run(`UPDATE admins SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`, [rows.id], (err) => {
+                    if (err) console.error('Error saving last login:', err.message);
+                });
+                res.status(200).json({ token: signAdminToken(rows) });
             }
         }
     });
@@ -529,13 +543,16 @@ app.put('/admin/password', verifyAdmin, async (req, res) => {
                 return res.status(401).json({ error: 'Invalid old password' });
             }
             const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-            db.run(`UPDATE admins SET password = ? WHERE id = ?`, [hashedNewPassword, req.user.id], function (err) {
+            // a new password also logs out every other session; this one gets a fresh token
+            const query = `UPDATE admins SET password = ?, password_changed_at = CURRENT_TIMESTAMP,
+                token_version = token_version + 1 WHERE id = ?`;
+            db.run(query, [hashedNewPassword, req.user.id], function (err) {
                 if (err) {
                     console.error('Error updating password:', err.message);
                     return res.status(500).json({ error: 'Failed to update password' });
-                } else {
-                    return res.status(200).json({ message: 'Password updated successfully' });
                 }
+                const token = signAdminToken({ ...row, token_version: row.token_version + 1 });
+                return res.status(200).json({ message: 'Password updated successfully', token });
             });
         }
     });
@@ -567,6 +584,29 @@ app.put('/admin/username', verifyAdmin, async (req, res) => {
                 return res.status(200).json({ message: 'Username updated successfully' });
             }
         });
+    });
+});
+
+app.post('/admin/logout-all', verifyAdmin, (req, res) => {
+    db.run(`UPDATE admins SET token_version = token_version + 1 WHERE id = ?`, [req.user.id], (err) => {
+        if (err) {
+            console.error('Error logging out everywhere:', err.message);
+            res.status(500).json({ error: 'Failed to log out everywhere' });
+        } else {
+            res.status(200).json({ message: 'Logged out on every device' });
+        }
+    });
+});
+
+app.get('/admins', verifyAdmin, (req, res) => {
+    const query = `SELECT id, username, created_at, last_login_at, password_changed_at FROM admins ORDER BY created_at ASC`;
+    db.all(query, [], (err, rows) => {
+        if (err) {
+            console.error('Error fetching admins:', err.message);
+            res.status(500).json({ error: 'Failed to fetch admins' });
+        } else {
+            res.status(200).json(rows);
+        }
     });
 });
 
@@ -710,6 +750,113 @@ app.delete('/contact/:id', verifyAdmin, (req, res) => {
     });
 });
 
+// public counts for the home page (numbers only, no personal data)
+app.get('/stats', (req, res) => {
+    const query = `SELECT
+        (SELECT COUNT(*) FROM members) AS members,
+        (SELECT COUNT(*) FROM events) AS events,
+        (SELECT COUNT(*) FROM event_photos) AS photos`;
+    db.get(query, [], (err, row) => {
+        if (err) {
+            console.error('Error fetching stats:', err.message);
+            res.status(500).json({ error: 'Failed to fetch stats' });
+        } else {
+            res.status(200).json(row);
+        }
+    });
+});
+
+// club info (Settings page) — public to read, admins to edit
+
+const SETTING_KEYS = ['contact_email', 'contact_phone', 'address', 'facebook', 'instagram', 'linkedin', 'github', 'youtube'];
+const LINK_KEYS = ['facebook', 'instagram', 'linkedin', 'github', 'youtube'];
+
+app.get('/settings', (req, res) => {
+    db.all(`SELECT key, value FROM settings`, [], (err, rows) => {
+        if (err) {
+            console.error('Error fetching settings:', err.message);
+            return res.status(500).json({ error: 'Failed to fetch settings' });
+        }
+        const settings = Object.fromEntries(SETTING_KEYS.map(key => [key, null]));
+        rows.forEach(row => { if (SETTING_KEYS.includes(row.key)) settings[row.key] = row.value; });
+        res.status(200).json(settings);
+    });
+});
+
+app.put('/settings', verifyAdmin, (req, res) => {
+    const updates = {};
+    for (const key of SETTING_KEYS) {
+        if (req.body[key] === undefined) continue;
+        const value = String(req.body[key] ?? '').trim();
+        if (value.length > 300) return res.status(400).json({ error: `${key} is too long.` });
+        if (value && LINK_KEYS.includes(key) && !/^https?:\/\/\S+$/i.test(value)) {
+            return res.status(400).json({ error: `${key} must be a full link starting with https://` });
+        }
+        if (value && key === 'contact_email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+            return res.status(400).json({ error: 'contact_email must be a valid email address.' });
+        }
+        updates[key] = value;
+    }
+
+    const entries = Object.entries(updates);
+    if (!entries.length) return res.status(400).json({ error: 'Nothing to save.' });
+
+    let remaining = entries.length;
+    let failed = false;
+    entries.forEach(([key, value]) => {
+        // an empty value removes the item
+        const [query, params] = value
+            ? [`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, [key, value]]
+            : [`DELETE FROM settings WHERE key = ?`, [key]];
+        db.run(query, params, (err) => {
+            if (err) {
+                console.error('Error saving settings:', err.message);
+                failed = true;
+            }
+            if (--remaining > 0) return;
+            if (failed) res.status(500).json({ error: 'Failed to save some settings' });
+            else res.status(200).json({ message: 'Settings saved' });
+        });
+    });
+});
+
+// spreadsheet (CSV) downloads for Settings > Export data
+
+const EXPORTS = {
+    members: `SELECT id, name, email, phone, position, position_rank, created_at FROM members ORDER BY name`,
+    attendance: `SELECT e.date AS event_date, e.title AS event, m.name AS member, m.email, a.status
+        FROM attendance a JOIN events e ON e.id = a.event_id JOIN members m ON m.id = a.member_id
+        ORDER BY e.date DESC, m.name`,
+    'join-requests': `SELECT id, name, email, phone, reason, status, created_at FROM join_requests ORDER BY created_at DESC`,
+    messages: `SELECT id, name, email, message, created_at FROM contact_messages ORDER BY created_at DESC`,
+};
+
+function csvCell(value) {
+    let text = value === null || value === undefined ? '' : String(value);
+    // stop spreadsheet apps from running text that looks like a formula
+    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
+}
+
+app.get('/export/:type', verifyAdmin, (req, res) => {
+    const query = EXPORTS[req.params.type];
+    if (!query) return res.status(404).json({ error: 'Unknown export' });
+
+    db.all(query, [], (err, rows) => {
+        if (err) {
+            console.error('Error exporting data:', err.message);
+            return res.status(500).json({ error: 'Failed to export data' });
+        }
+        const headers = rows.length ? Object.keys(rows[0]) : ['no data'];
+        const lines = [headers.map(csvCell).join(','), ...rows.map(row => headers.map(h => csvCell(row[h])).join(','))];
+        const date = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="ndubcc-${req.params.type}-${date}.csv"`);
+        // the BOM makes Excel read Bangla and other non-English text correctly
+        res.send('﻿' + lines.join('\r\n'));
+    });
+});
+
 // announcements
 
 app.post('/announcements', verifyAdmin, (req, res) => {
@@ -802,7 +949,7 @@ app.post('/events/:id/photos', verifyAdmin, upload.single('photo'), async (req, 
     }
 
     try {
-        await addWatermark(originalPath, watermarkedPath, 'Developed by Abdullah Ahsan');
+        await processImage(originalPath, watermarkedPath, { watermark: true });
     } catch (err) {
         console.error('Error watermarking photo:', err.message);
         removeFile(originalPath);
