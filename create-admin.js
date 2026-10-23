@@ -9,6 +9,10 @@ if (!username || !password) {
     console.error('Usage: node create-admin.js <username> <password>');
     process.exit(1);
 }
+if (!/^[A-Za-z0-9._-]{3,50}$/.test(username)) {
+    console.error('Username must be 3-50 characters: letters, numbers, dots, dashes or underscores.');
+    process.exit(1);
+}
 if (password.length < 8) {
     console.error('Password must be at least 8 characters.');
     process.exit(1);

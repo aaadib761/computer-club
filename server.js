@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 const db = require('./db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -11,23 +12,25 @@ const fs = require('fs');
 const sharp = require('sharp');
 
 const UPLOAD_TYPE_ERROR = 'Only JPEG, PNG, and WEBP images are allowed';
+const INVALID_IMAGE_ERROR = "That file isn't a valid image.";
+// the saved file's extension comes from the type we accept, never from the uploader's file name
+const IMAGE_EXTENSIONS = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, 'uploads/');
     },
     filename: (req, file, cb) => {
-        const UniqueName = Date.now() + '-' + Math.round(Math.random() * 1e9) + path.extname(file.originalname);
+        const UniqueName = Date.now() + '-' + Math.round(Math.random() * 1e9) + IMAGE_EXTENSIONS[file.mimetype];
         cb(null, UniqueName);
     }
 });
 
-const upload = multer({ 
+const upload = multer({
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // one image, 5MB max
     fileFilter: (req, file, cb) => {
-        const allowTypes = ['image/jpeg', 'image/png', 'image/webp'];
-        if (allowTypes.includes(file.mimetype)) {
+        if (IMAGE_EXTENSIONS[file.mimetype]) {
             cb(null, true);
         } else {
             cb(new Error(UPLOAD_TYPE_ERROR));
@@ -36,11 +39,24 @@ const upload = multer({
 });
 
 const PORT = process.env.PORT || 3000 ;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const JWT_SECRET = process.env.JWT_SECRET ;
 if (!JWT_SECRET) {
     console.error('JWT_SECRET is not set. Add it to your .env file.');
     process.exit(1);
 }
+// a short secret can be guessed, which would let someone forge admin logins
+if (JWT_SECRET.length < 32) {
+    const advice = 'JWT_SECRET should be at least 32 random characters. Generate one with: ' +
+        'node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"';
+    if (IS_PRODUCTION) {
+        console.error(advice);
+        process.exit(1);
+    }
+    console.warn('Warning: ' + advice);
+}
+// behind a host's proxy (Render, Railway, nginx...), set TRUST_PROXY=1 so rate limits see each visitor's real IP
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
 const loginLimiter = rateLimit({ 
     windowMs: 15 * 60 * 1000,
     max: 5,
@@ -53,6 +69,62 @@ const formLimiter = () => rateLimit({
     message: { error: 'Too many submissions. Please try again later.' }
 });
 const MIN_PASSWORD_LENGTH = 8;
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
+
+// Checks request fields against simple rules and returns an error message (or null if fine).
+// With partial: true (edits), fields that weren't sent are skipped.
+function checkFields(body, rules, { partial = false } = {}) {
+    for (const [field, rule] of Object.entries(rules)) {
+        const value = body[field];
+        if (value === undefined && partial) continue;
+        const empty = value === undefined || value === null || (typeof value === 'string' && !value.trim());
+        if (empty) {
+            if (rule.required) return `${field} is required.`;
+            continue;
+        }
+        if (typeof value !== 'string') return `${field} must be text.`;
+        if (rule.max && value.length > rule.max) return `${field} must be at most ${rule.max} characters.`;
+        if (rule.email && !EMAIL_PATTERN.test(value)) return `${field} must be a valid email address.`;
+        if (rule.date && !DATE_PATTERN.test(value)) return `${field} must look like 2026-11-15 or 2026-11-15T15:00.`;
+    }
+    return null;
+}
+
+const MEMBER_RULES = {
+    name: { required: true, max: 100 },
+    email: { required: true, max: 150, email: true },
+    phone: { max: 30 },
+    position: { max: 60 },
+};
+const EVENT_RULES = {
+    title: { required: true, max: 120 },
+    description: { max: 3000 },
+    date: { required: true, date: true },
+};
+const ANNOUNCEMENT_RULES = {
+    title: { required: true, max: 150 },
+    body: { required: true, max: 3000 },
+};
+
+// usernames appear in URLs (DELETE /admin/:username), so keep them simple
+const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,50}$/;
+const USERNAME_ERROR = 'Username must be 3-50 characters: letters, numbers, dots, dashes or underscores.';
+
+// bcrypt only uses the first 72 bytes of a password, so longer ones are refused
+function checkPassword(password, field = 'password') {
+    if (typeof password !== 'string') return `${field} is required.`;
+    if (password.length < MIN_PASSWORD_LENGTH) return `${field} must be at least ${MIN_PASSWORD_LENGTH} characters`;
+    if (Buffer.byteLength(password) > 72) return `${field} must be at most 72 characters.`;
+    return null;
+}
+
+function checkRank(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const rank = Number(value);
+    return Number.isInteger(rank) && rank >= 1 && rank <= 999 ? null : 'position_rank must be a whole number from 1 to 999.';
+}
 
 function verifyAdmin(req, res, next) {
     const authHeader = req.headers['authorization'];
@@ -116,7 +188,30 @@ async function processImage(inputPath, outputPath, { watermark = false } = {}) {
     await image.toFile(outputPath);
 }
 
-app.use(express.json());
+// Security headers. The Content-Security-Policy only lets the browser run our own
+// script files (no inline or injected scripts) and load fonts from Google Fonts.
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+            fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+            imgSrc: ["'self'", 'data:', 'blob:'],
+            connectSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+            frameAncestors: ["'none'"],
+            // only force https once the site is actually served over https
+            upgradeInsecureRequests: IS_PRODUCTION ? [] : null,
+        },
+    },
+    strictTransportSecurity: IS_PRODUCTION,
+}));
+
+// small JSON bodies only; nothing here needs more than a few KB
+app.use(express.json({ limit: '50kb' }));
 app.use('/uploads', express.static('uploads'));
 // the website; pages keep their .html extension so they never clash with API routes like /events
 app.use(express.static('public'));
@@ -125,7 +220,8 @@ app.use(express.static('public'));
 
 app.post('/members', verifyAdmin, (req, res) => {
     const { name, email, phone, position, position_rank } = req.body;
-    if (!name || !email) return res.status(400).json({ error: 'name and email required.' });
+    const invalid = checkFields(req.body, MEMBER_RULES) || checkRank(position_rank);
+    if (invalid) return res.status(400).json({ error: invalid });
     const query = `INSERT INTO members (name, email, phone, position, position_rank) VALUES (?, ?, ?, ?, ?)`;
     db.run(query, [name, email, phone, position || null, position_rank || null], function (err) {
         if (err && err.message.includes('UNIQUE')) {
@@ -149,9 +245,10 @@ app.post('/members/:id/photo', verifyAdmin, upload.single('photo'), async (req, 
     try {
         await processImage(originalPath, photoPath);
     } catch (err) {
+        // sharp can't read it, so it isn't really an image (whatever its name says)
         console.error('Error processing image:', err.message);
         removeFile(originalPath);
-        return res.status(500).json({ error: 'Failed to process image.' });
+        return res.status(400).json({ error: INVALID_IMAGE_ERROR });
     }
     removeFile(originalPath);
 
@@ -242,6 +339,8 @@ app.get('/members/:id', verifyAdmin, (req, res) => {
 
 app.put('/members/:id', verifyAdmin, (req, res) => {
     const memberId = req.params.id;
+    const invalid = checkFields(req.body, MEMBER_RULES, { partial: true }) || checkRank(req.body.position_rank);
+    if (invalid) return res.status(400).json({ error: invalid });
 
     db.get(`SELECT * FROM members WHERE id = ?`, [memberId], (err, existing) => {
         if (err) {
@@ -305,7 +404,8 @@ app.delete('/members/:id', verifyAdmin, (req, res) => {
 
 app.post('/events', verifyAdmin, (req, res) => {
     const { title, description, date } = req.body;
-    if (!title || !date) return res.status(400).json({ error: 'title and date required.' });
+    const invalid = checkFields(req.body, EVENT_RULES);
+    if (invalid) return res.status(400).json({ error: invalid });
     const query = `INSERT INTO events (title, description, date) Values (?, ?, ?)`;
     db.run(query, [title, description, date], function (err) {
         if (err) {
@@ -346,6 +446,8 @@ app.get('/events/:id', (req, res) => {
 
 app.put('/events/:id', verifyAdmin, (req, res) => {
     const eventId = req.params.id;
+    const invalid = checkFields(req.body, EVENT_RULES, { partial: true });
+    if (invalid) return res.status(400).json({ error: invalid });
 
     db.get(`SELECT * FROM events WHERE id = ?`, [eventId], (err, existing) => {
         if (err) {
@@ -485,8 +587,9 @@ app.delete('/attendance/:id', verifyAdmin, (req, res) => {
 // the first admin is created with create-admin.js, not through this route
 app.post('/admin/register', verifyAdmin, async (req, res) => {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
-    if (password.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) return res.status(400).json({ error: USERNAME_ERROR });
+    const passwordError = checkPassword(password);
+    if (passwordError) return res.status(400).json({ error: passwordError });
     const hashedPassword = await bcrypt.hash(password, 10);
     const query = `INSERT INTO admins (username, password) VALUES (?, ?)`;
     db.run(query, [username, hashedPassword], function (err) {
@@ -503,7 +606,9 @@ app.post('/admin/register', verifyAdmin, async (req, res) => {
 
 app.post('/admin/login', loginLimiter, (req, res) => {
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+        return res.status(400).json({ error: 'username and password required' });
+    }
     const query = `SELECT * FROM admins WHERE username = ?`;
 
     db.get(query, [username], async (err, rows) => {
@@ -528,8 +633,9 @@ app.post('/admin/login', loginLimiter, (req, res) => {
 
 app.put('/admin/password', verifyAdmin, async (req, res) => {
     const { oldPassword, newPassword } = req.body;
-    if (!oldPassword || !newPassword) return res.status(400).json({ error: 'oldPassword and newPassword required' });
-    if (newPassword.length < MIN_PASSWORD_LENGTH) return res.status(400).json({ error: `newPassword must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    if (typeof oldPassword !== 'string' || !oldPassword) return res.status(400).json({ error: 'oldPassword and newPassword required' });
+    const passwordError = checkPassword(newPassword, 'newPassword');
+    if (passwordError) return res.status(400).json({ error: passwordError });
     const query = `SELECT * FROM admins WHERE id = ?`;
     db.get(query, [req.user.id], async (err, row) => {
         if (err) {
@@ -560,7 +666,8 @@ app.put('/admin/password', verifyAdmin, async (req, res) => {
  
 app.put('/admin/username', verifyAdmin, async (req, res) => {
     const { newUsername, currentPassword } = req.body;
-    if (!newUsername || !currentPassword) return res.status(400).json({ error: 'newUsername and currentPassword required' });
+    if (!newUsername || typeof currentPassword !== 'string' || !currentPassword) return res.status(400).json({ error: 'newUsername and currentPassword required' });
+    if (typeof newUsername !== 'string' || !USERNAME_PATTERN.test(newUsername)) return res.status(400).json({ error: USERNAME_ERROR });
  
     const query = `SELECT * FROM admins WHERE id = ?`;
     db.get(query, [req.user.id], async (err, row) => {
@@ -631,7 +738,13 @@ app.delete('/admin/:username', verifyAdmin, (req, res) => {
 
 app.post('/join-requests', formLimiter(), (req, res) => {
     const { name, email, phone, reason } = req.body;
-    if (!name || !email) return res.status(400).json({ error: 'name and email required.' });
+    const invalid = checkFields(req.body, {
+        name: { required: true, max: 100 },
+        email: { required: true, max: 150, email: true },
+        phone: { max: 30 },
+        reason: { max: 1000 },
+    });
+    if (invalid) return res.status(400).json({ error: invalid });
 
     const query = `INSERT INTO join_requests (name, email, phone, reason) VALUES (?, ?, ?, ?)`;
     db.run(query, [name, email, phone || null, reason || null], function (err) {
@@ -714,7 +827,12 @@ app.delete('/join-requests/:id', verifyAdmin, (req, res) => {
 
 app.post('/contact', formLimiter(), (req, res) => {
     const { name, email, message } = req.body;
-    if (!name || !email || !message) return res.status(400).json({ error: 'name, email and message required.' });
+    const invalid = checkFields(req.body, {
+        name: { required: true, max: 100 },
+        email: { required: true, max: 150, email: true },
+        message: { required: true, max: 2000 },
+    });
+    if (invalid) return res.status(400).json({ error: invalid });
     const query = `INSERT INTO contact_messages (name, email, message) VALUES (?, ?, ?)`;
     db.run(query, [name, email, message], function (err) {
         if (err) {
@@ -861,7 +979,8 @@ app.get('/export/:type', verifyAdmin, (req, res) => {
 
 app.post('/announcements', verifyAdmin, (req, res) => {
     const { title, body } = req.body;
-    if (!title || !body) return res.status(400).json({ error: 'title and body required.' });
+    const invalid = checkFields(req.body, ANNOUNCEMENT_RULES);
+    if (invalid) return res.status(400).json({ error: invalid });
     const query = `INSERT INTO announcements (title, body) VALUES (?, ?)`;
 
     db.run(query, [title, body], function (err) {
@@ -887,6 +1006,8 @@ app.get('/announcements', (req, res) => {
 
 app.put('/announcements/:id', verifyAdmin, (req, res) => {
     const announcementId = req.params.id;
+    const invalid = checkFields(req.body, ANNOUNCEMENT_RULES, { partial: true });
+    if (invalid) return res.status(400).json({ error: invalid });
 
     db.get(`SELECT * FROM announcements WHERE id = ?`, [announcementId], (err, existing) => {
         if (err) {
@@ -936,6 +1057,11 @@ app.post('/events/:id/photos', verifyAdmin, upload.single('photo'), async (req, 
     const originalPath = req.file.path;
     const watermarkedPath = 'uploads/wm-' + req.file.filename;
     const { caption } = req.body;
+    const invalidCaption = checkFields(req.body, { caption: { max: 150 } });
+    if (invalidCaption) {
+        removeFile(originalPath);
+        return res.status(400).json({ error: invalidCaption });
+    }
 
     const event = await new Promise((resolve) => {
         db.get(`SELECT id FROM events WHERE id = ?`, [eventId], (err, row) => {
@@ -953,7 +1079,7 @@ app.post('/events/:id/photos', verifyAdmin, upload.single('photo'), async (req, 
     } catch (err) {
         console.error('Error watermarking photo:', err.message);
         removeFile(originalPath);
-        return res.status(500).json({ error: 'Failed to process image' });
+        return res.status(400).json({ error: INVALID_IMAGE_ERROR });
     }
     removeFile(originalPath);
 
@@ -1007,6 +1133,10 @@ app.use((err, req, res, next) => {
     if (err instanceof multer.MulterError || err.message === UPLOAD_TYPE_ERROR) {
         console.error('File upload error:', err.message);
         res.status(400).json({ error: err.message });
+    } else if (err.type === 'entity.too.large') {
+        res.status(413).json({ error: 'That request is too large.' });
+    } else if (err.type === 'entity.parse.failed') {
+        res.status(400).json({ error: 'The request data is not valid JSON.' });
     } else {
         console.error('Unexpected error:', err.message);
         res.status(500).json({ error: 'Unexpected error occurred' });
