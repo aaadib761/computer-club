@@ -30,6 +30,21 @@
                         <input id="name" name="name" type="text" required maxlength="100" autocomplete="name">
                     </div>
                     <div class="field">
+                        <label for="student_id">Student ID</label>
+                        <input id="student_id" name="student_id" required minlength="3" maxlength="30" pattern="[A-Za-z0-9\-]{3,30}" autocomplete="off">
+                    </div>
+                    <div class="field-row">
+                        <div class="field">
+                            <label for="department">Department</label>
+                            <input id="department" name="department" required maxlength="60" list="department-options" placeholder="e.g. CSE" autocomplete="off">
+                            <datalist id="department-options"></datalist>
+                        </div>
+                        <div class="field">
+                            <label for="batch">Batch</label>
+                            <input id="batch" name="batch" required maxlength="30" placeholder="e.g. 22" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="field">
                         <label for="email">Email</label>
                         <input id="email" name="email" type="email" required maxlength="150" autocomplete="email">
                     </div>

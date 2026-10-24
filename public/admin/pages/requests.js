@@ -25,6 +25,11 @@ function render() {
             <div class="row-main">
                 <h3>${escapeHtml(r.name)} ${statusBadge(r.status)}</h3>
                 <p class="meta">
+                    ${r.student_id ? `ID ${escapeHtml(r.student_id)}` : '<span class="badge badge-pending">No student ID</span>'}
+                    ${r.department ? ` · ${escapeHtml(r.department)}` : ''}
+                    ${r.batch ? ` · Batch ${escapeHtml(r.batch)}` : ''}
+                </p>
+                <p class="meta">
                     ${escapeHtml(r.email)}
                     ${r.phone ? ` · ${escapeHtml(r.phone)}` : ''}
                     · ${formatDate(r.created_at, { isUtc: true })}
@@ -50,7 +55,7 @@ list.addEventListener('click', async (e) => {
 
     try {
         if (action === 'delete') {
-            if (!confirm(`Delete the request from ${request.name}?`)) return;
+            if (!(await confirmBox({ title: 'Delete this request?', message: `The join request from ${request.name} will be deleted.` }))) return;
             await adminApi(`/join-requests/${request.id}`, { method: 'DELETE' });
             toast('Request deleted');
         } else {

@@ -47,7 +47,7 @@ list.addEventListener('click', async (e) => {
         openModal(dialog);
     }
     if (button.dataset.action === 'delete') {
-        if (!confirm(`Delete "${item.title}"?`)) return;
+        if (!(await confirmBox({ title: 'Delete announcement?', message: `"${item.title}" will be removed from the website.` }))) return;
         try {
             await adminApi(`/announcements/${item.id}`, { method: 'DELETE' });
             toast('Announcement deleted');

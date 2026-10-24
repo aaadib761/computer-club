@@ -76,6 +76,14 @@ function socialLinks(info) {
         .map(([key, label]) => ({ label, url: info[key] }));
 }
 
+// Department suggestions on the Join form and in Admin > Members. Add new departments here.
+const DEPARTMENTS = ['CSE', 'BBA', 'English', 'Law', 'Economics', 'Microbiology'];
+
+function fillDepartmentOptions(datalist, extra = []) {
+    const all = [...new Set([...DEPARTMENTS, ...extra])].sort((a, b) => a.localeCompare(b));
+    datalist.innerHTML = all.map(d => `<option value="${escapeHtml(d)}">`).join('');
+}
+
 // Fetch JSON from our API; throws an Error with the server's message on failure.
 async function api(path, options = {}) {
     const res = await fetch(path, {
@@ -185,7 +193,10 @@ function setupForm(formId, path, successText) {
 
         const invalid = form.querySelector(':invalid');
         if (invalid) {
-            showMessage(message, 'error', 'Please fill in all required fields with a valid email address.');
+            const label = invalid.labels?.[0]?.childNodes[0]?.textContent.trim() || 'the highlighted field';
+            showMessage(message, 'error', invalid.value.trim()
+                ? `Please check "${label}" — it doesn't look right.`
+                : `Please fill in "${label}".`);
             message.scrollIntoView({ behavior: 'smooth', block: 'center' });
             invalid.focus({ preventScroll: true });
             return;

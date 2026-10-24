@@ -88,8 +88,27 @@ function checkFields(body, rules, { partial = false } = {}) {
         if (rule.max && value.length > rule.max) return `${field} must be at most ${rule.max} characters.`;
         if (rule.email && !EMAIL_PATTERN.test(value)) return `${field} must be a valid email address.`;
         if (rule.date && !DATE_PATTERN.test(value)) return `${field} must look like 2026-11-15 or 2026-11-15T15:00.`;
+        if (rule.pattern && !rule.pattern.test(value.trim())) return rule.patternError;
     }
     return null;
+}
+
+// student and club IDs: letters, numbers and dashes, stored in capitals so "ab-1" and "AB-1" are the same ID
+const ID_PATTERN = /^[A-Za-z0-9-]{3,30}$/;
+function cleanId(value) {
+    return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : null;
+}
+function cleanText(value) {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+// Turns a "UNIQUE constraint failed" database error into a message people understand (or null).
+function duplicateMessage(err) {
+    if (!err || !err.message.includes('UNIQUE')) return null;
+    if (err.message.includes('student_id')) return 'A member with this student ID already exists.';
+    if (err.message.includes('club_id')) return 'A member with this club ID already exists.';
+    if (err.message.includes('email')) return 'A member with this email already exists.';
+    return 'That already exists.';
 }
 
 const MEMBER_RULES = {
@@ -97,6 +116,10 @@ const MEMBER_RULES = {
     email: { required: true, max: 150, email: true },
     phone: { max: 30 },
     position: { max: 60 },
+    student_id: { required: true, pattern: ID_PATTERN, patternError: 'Student ID must be 3-30 letters, numbers or dashes.' },
+    club_id: { pattern: ID_PATTERN, patternError: 'Club ID must be 3-30 letters, numbers or dashes.' },
+    batch: { required: true, max: 30 },
+    department: { required: true, max: 60 },
 };
 const EVENT_RULES = {
     title: { required: true, max: 120 },
@@ -222,15 +245,24 @@ app.post('/members', verifyAdmin, (req, res) => {
     const { name, email, phone, position, position_rank } = req.body;
     const invalid = checkFields(req.body, MEMBER_RULES) || checkRank(position_rank);
     if (invalid) return res.status(400).json({ error: invalid });
-    const query = `INSERT INTO members (name, email, phone, position, position_rank) VALUES (?, ?, ?, ?, ?)`;
-    db.run(query, [name, email, phone, position || null, position_rank || null], function (err) {
-        if (err && err.message.includes('UNIQUE')) {
-            res.status(409).json({ error: 'A member with this email already exists.' });
+    const query = `INSERT INTO members (name, email, phone, position, position_rank, student_id, club_id, batch, department)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    const cleanPosition = (position || '').trim() || null;
+    // a rank without a position means nothing, so it isn't stored
+    const cleanRank = cleanPosition && position_rank ? Number(position_rank) : null;
+    const student_id = cleanId(req.body.student_id);
+    const club_id = cleanId(req.body.club_id);
+    const batch = cleanText(req.body.batch);
+    const department = cleanText(req.body.department);
+    db.run(query, [name, email, phone, cleanPosition, cleanRank, student_id, club_id, batch, department], function (err) {
+        const duplicate = duplicateMessage(err);
+        if (duplicate) {
+            res.status(409).json({ error: duplicate });
         } else if (err) {
             console.error('Error inserting member:', err.message);
             res.status(500).json({ error: 'Failed to add member' });
         } else {
-            res.status(201).json({ id: this.lastID, name, email, phone, position, position_rank });
+            res.status(201).json({ id: this.lastID, name, email, phone, position: cleanPosition, position_rank: cleanRank, student_id, club_id, batch, department });
         }
     });
 });
@@ -312,7 +344,10 @@ app.get('/members', verifyAdmin, (req, res) => {
 
 // public route, so only expose what the website shows (no email or phone)
 app.get('/members/executive', (req, res) => {
-    const query = `SELECT id, name, position, position_rank, photo_path FROM members WHERE position_rank IS NOT NULL ORDER BY position_rank ASC`;
+    // having a position puts someone on the committee; rank only sets the order (no rank = after ranked ones)
+    const query = `SELECT id, name, position, position_rank, photo_path FROM members
+        WHERE position IS NOT NULL AND TRIM(position) != ''
+        ORDER BY position_rank IS NULL, position_rank, name COLLATE NOCASE`;
     db.all(query, [], (err, rows) => {
         if (err) {
             console.error('Error fetching executive members:', err.message);
@@ -354,18 +389,27 @@ app.put('/members/:id', verifyAdmin, (req, res) => {
         const name = req.body.name !== undefined ? req.body.name : existing.name;
         const email = req.body.email !== undefined ? req.body.email : existing.email;
         const phone = req.body.phone !== undefined ? req.body.phone : existing.phone;
-        const position = req.body.position !== undefined ? req.body.position : existing.position;
-        const position_rank = req.body.position_rank !== undefined ? req.body.position_rank : existing.position_rank;
+        const newPosition = req.body.position !== undefined ? req.body.position : existing.position;
+        const position = (newPosition || '').trim() || null;
+        const newRank = req.body.position_rank !== undefined ? req.body.position_rank : existing.position_rank;
+        // removing the position also removes the rank
+        const position_rank = position && newRank ? Number(newRank) : null;
+        const student_id = req.body.student_id !== undefined ? cleanId(req.body.student_id) : existing.student_id;
+        const club_id = req.body.club_id !== undefined ? cleanId(req.body.club_id) : existing.club_id;
+        const batch = req.body.batch !== undefined ? cleanText(req.body.batch) : existing.batch;
+        const department = req.body.department !== undefined ? cleanText(req.body.department) : existing.department;
 
-        const query = `UPDATE members SET name = ?, email = ?, phone = ?, position = ?, position_rank = ? WHERE id = ?`;
-        db.run(query, [name, email, phone, position, position_rank, memberId], function (err) {
-            if (err && err.message.includes('UNIQUE')) {
-                res.status(409).json({ error: 'A member with this email already exists.' });
+        const query = `UPDATE members SET name = ?, email = ?, phone = ?, position = ?, position_rank = ?,
+            student_id = ?, club_id = ?, batch = ?, department = ? WHERE id = ?`;
+        db.run(query, [name, email, phone, position, position_rank, student_id, club_id, batch, department, memberId], function (err) {
+            const duplicate = duplicateMessage(err);
+            if (duplicate) {
+                res.status(409).json({ error: duplicate });
             } else if (err) {
                 console.error('Error updating member:', err.message);
                 res.status(500).json({ error: 'Failed to update member' });
             } else {
-                res.status(200).json({ id: memberId, name, email, phone, position, position_rank });
+                res.status(200).json({ id: memberId, name, email, phone, position, position_rank, student_id, club_id, batch, department });
             }
         });
     });
@@ -743,16 +787,22 @@ app.post('/join-requests', formLimiter(), (req, res) => {
         email: { required: true, max: 150, email: true },
         phone: { max: 30 },
         reason: { max: 1000 },
+        student_id: MEMBER_RULES.student_id,
+        batch: MEMBER_RULES.batch,
+        department: MEMBER_RULES.department,
     });
     if (invalid) return res.status(400).json({ error: invalid });
 
-    const query = `INSERT INTO join_requests (name, email, phone, reason) VALUES (?, ?, ?, ?)`;
-    db.run(query, [name, email, phone || null, reason || null], function (err) {
+    const student_id = cleanId(req.body.student_id);
+    const batch = cleanText(req.body.batch);
+    const department = cleanText(req.body.department);
+    const query = `INSERT INTO join_requests (name, email, phone, reason, student_id, batch, department) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    db.run(query, [name, email, phone || null, reason || null, student_id, batch, department], function (err) {
         if (err) {
             console.error('Error submitting join request:', err.message);
             res.status(500).json({ error: 'Failed to submit request' });
         } else {
-            res.status(201).json({ id: this.lastID, name, email, phone, reason, status: 'pending' });
+            res.status(201).json({ id: this.lastID, name, email, phone, reason, student_id, batch, department, status: 'pending' });
         }
 
     });
@@ -796,10 +846,10 @@ app.put('/join-requests/:id', verifyAdmin, (req, res) => {
         // approving a request turns the applicant into a member
         if (status !== 'approved' || request.status === 'approved') return updateStatus(undefined);
 
-        db.run(`INSERT INTO members (name, email, phone) VALUES (?, ?, ?)`, [request.name, request.email, request.phone], function (err) {
-            if (err && err.message.includes('UNIQUE')) {
-                return res.status(409).json({ error: 'A member with this email already exists.' });
-            }
+        const query = `INSERT INTO members (name, email, phone, student_id, batch, department) VALUES (?, ?, ?, ?, ?, ?)`;
+        db.run(query, [request.name, request.email, request.phone, request.student_id, request.batch, request.department], function (err) {
+            const duplicate = duplicateMessage(err);
+            if (duplicate) return res.status(409).json({ error: duplicate });
             if (err) {
                 console.error('Error creating member from join request:', err.message);
                 return res.status(500).json({ error: 'Failed to create member' });
@@ -941,11 +991,11 @@ app.put('/settings', verifyAdmin, (req, res) => {
 // spreadsheet (CSV) downloads for Settings > Export data
 
 const EXPORTS = {
-    members: `SELECT id, name, email, phone, position, position_rank, created_at FROM members ORDER BY name`,
-    attendance: `SELECT e.date AS event_date, e.title AS event, m.name AS member, m.email, a.status
+    members: `SELECT id, name, student_id, club_id, department, batch, email, phone, position, position_rank, created_at FROM members ORDER BY name`,
+    attendance: `SELECT e.date AS event_date, e.title AS event, m.name AS member, m.student_id, m.club_id, m.department, m.batch, m.email, a.status
         FROM attendance a JOIN events e ON e.id = a.event_id JOIN members m ON m.id = a.member_id
         ORDER BY e.date DESC, m.name`,
-    'join-requests': `SELECT id, name, email, phone, reason, status, created_at FROM join_requests ORDER BY created_at DESC`,
+    'join-requests': `SELECT id, name, student_id, department, batch, email, phone, reason, status, created_at FROM join_requests ORDER BY created_at DESC`,
     messages: `SELECT id, name, email, message, created_at FROM contact_messages ORDER BY created_at DESC`,
 };
 

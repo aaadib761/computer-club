@@ -456,6 +456,7 @@ a.card.event-card { display: flex; gap: 16px; align-items: flex-start; }
     box-shadow: 0 0 0 3px var(--orange-soft);
 }
 .field textarea { min-height: 130px; resize: vertical; }
+.field-row { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
 
 .contact-layout { display: grid; gap: 20px; align-items: start; }
 .contact-layout .form-card { width: 100%; }

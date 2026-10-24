@@ -72,7 +72,7 @@ list.addEventListener('click', async (e) => {
     }
 
     if (button.dataset.action === 'delete') {
-        if (!confirm(`Delete "${event.title}"? Its attendance records and gallery photos will be deleted too.`)) return;
+        if (!(await confirmBox({ title: `Delete "${event.title}"?`, message: 'Its attendance records and gallery photos will be deleted too.' }))) return;
         try {
             await adminApi(`/events/${event.id}`, { method: 'DELETE' });
             toast('Event deleted');

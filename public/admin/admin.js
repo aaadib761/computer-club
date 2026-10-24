@@ -225,6 +225,74 @@ async function submitting(form, work) {
     }
 }
 
+// Our own confirmation box, styled like the rest of the panel (instead of the browser's confirm()).
+// Usage: if (!(await confirmBox({ title: 'Delete photo?', message: '...' }))) return;
+let confirmDialogEl = null;
+function confirmBox({ title, message = '', confirmText = 'Delete', danger = true }) {
+    if (!confirmDialogEl) {
+        confirmDialogEl = document.createElement('dialog');
+        confirmDialogEl.className = 'modal confirm-modal';
+        confirmDialogEl.innerHTML = `
+            <form method="dialog">
+                <div class="confirm-icon" aria-hidden="true">⚠️</div>
+                <h2></h2>
+                <p class="confirm-message"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-ghost" value="cancel">Cancel</button>
+                    <button type="button" class="btn confirm-ok" value="ok"></button>
+                </div>
+            </form>`;
+        document.body.appendChild(confirmDialogEl);
+    }
+    const dialog = confirmDialogEl;
+    // textContent keeps names like "<b>Rahim</b>" as plain text
+    dialog.querySelector('h2').textContent = title;
+    dialog.querySelector('.confirm-message').textContent = message;
+    dialog.querySelector('.confirm-message').classList.toggle('hidden', !message);
+    const ok = dialog.querySelector('.confirm-ok');
+    ok.textContent = confirmText;
+    ok.className = `btn confirm-ok ${danger ? 'btn-danger-solid' : ''}`;
+    dialog.querySelector('.confirm-icon').classList.toggle('hidden', !danger);
+
+    return new Promise(resolve => {
+        const finish = (answer) => {
+            dialog.removeEventListener('close', onClose);
+            dialog.removeEventListener('click', onClick);
+            if (dialog.open) dialog.close();
+            resolve(answer);
+        };
+        const onClose = () => finish(false);  // Escape key
+        const onClick = (e) => {
+            if (e.target === dialog) return finish(false);  // clicked the dark background
+            const button = e.target.closest('button[value]');
+            if (button) finish(button.value === 'ok');
+        };
+        dialog.addEventListener('close', onClose);
+        dialog.addEventListener('click', onClick);
+        dialog.showModal();
+        dialog.querySelector('.btn-ghost').focus();  // safe default: Enter cancels
+    });
+}
+
+// Fallback when the browser blocks copying: show the address selected, ready for Ctrl+C.
+function showCopyBox(text) {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'modal confirm-modal';
+    dialog.innerHTML = `
+        <form method="dialog">
+            <h2>Copy this email address</h2>
+            <p class="confirm-message">Press Ctrl + C (or long-press on a phone) to copy it.</p>
+            <div class="field"><input readonly aria-label="Email address"></div>
+            <div class="modal-actions"><button class="btn">Done</button></div>
+        </form>`;
+    document.body.appendChild(dialog);
+    const input = dialog.querySelector('input');
+    input.value = text;
+    dialog.addEventListener('close', () => dialog.remove());
+    dialog.showModal();
+    input.select();
+}
+
 // "Copy email" works with any email service (Gmail, Outlook…), unlike mailto: links,
 // which need an email app installed. Buttons look like: <button data-copy="a@b.com">
 document.addEventListener('click', async (e) => {
@@ -235,7 +303,7 @@ document.addEventListener('click', async (e) => {
         toast(`Copied ${button.dataset.copy}`);
     } catch {
         // clipboard can be blocked (e.g. not on localhost/https); let them copy by hand
-        prompt('Copy this email address:', button.dataset.copy);
+        showCopyBox(button.dataset.copy);
     }
 });
 

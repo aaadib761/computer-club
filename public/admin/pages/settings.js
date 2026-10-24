@@ -106,7 +106,7 @@ document.querySelectorAll('[data-export]').forEach(button => {
 // ---------- security ----------
 
 document.getElementById('logout-all-btn').addEventListener('click', async () => {
-    if (!confirm('Log out on every device, including this one?')) return;
+    if (!(await confirmBox({ title: 'Log out everywhere?', message: 'You will be logged out on every device, including this one.', confirmText: 'Log out everywhere' }))) return;
     try {
         await adminApi('/admin/logout-all', { method: 'POST' });
         logout();
@@ -145,7 +145,7 @@ adminsList.addEventListener('click', async (e) => {
     const button = e.target.closest('button[data-username]');
     if (!button) return;
     const username = button.dataset.username;
-    if (!confirm(`Remove admin "${username}"? They will lose access immediately.`)) return;
+    if (!(await confirmBox({ title: `Remove admin "${username}"?`, message: 'They will lose access immediately.', confirmText: 'Remove' }))) return;
     try {
         await adminApi(`/admin/${encodeURIComponent(username)}`, { method: 'DELETE' });
         toast(`${username} removed`);

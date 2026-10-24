@@ -79,24 +79,6 @@ db.serialize(() => {
 
     });
 
-    // columns added later for Settings > Security; older databases get them added here
-    db.all(`PRAGMA table_info(admins)`, (err, columns) => {
-        if (err) return console.error('Error reading admins columns:', err.message);
-        const existing = columns.map(c => c.name);
-        const wanted = {
-            token_version: 'INTEGER NOT NULL DEFAULT 0',  // bumping it logs the admin out everywhere
-            last_login_at: 'DATETIME',
-            password_changed_at: 'DATETIME',
-        };
-        db.serialize(() => {
-            Object.entries(wanted).forEach(([name, type]) => {
-                if (existing.includes(name)) return;
-                db.run(`ALTER TABLE admins ADD COLUMN ${name} ${type}`, (err) => {
-                    if (err) console.error(`Error adding admins.${name}:`, err.message);
-                });
-            });
-        });
-    });
 
     // club info edited in Settings (contact email, social links...), one row per item
     db.run(`CREATE TABLE IF NOT EXISTS settings (
@@ -162,7 +144,41 @@ db.serialize(() => {
             } else {
                 console.log('event_photos table created or already exists.');
             }
-        });    
+        });
+
+    // columns added after the first version; older databases get them added here
+    addMissingColumns('admins', {
+        token_version: 'INTEGER NOT NULL DEFAULT 0',  // bumping it logs the admin out everywhere
+        last_login_at: 'DATETIME',
+        password_changed_at: 'DATETIME',
+    });
+    addMissingColumns('members', { student_id: 'TEXT', club_id: 'TEXT', batch: 'TEXT', department: 'TEXT' }, () => {
+        // no two members can share a student or club ID (empty ones are allowed to repeat)
+        db.run(`CREATE UNIQUE INDEX IF NOT EXISTS members_student_id ON members (student_id)`, (err) => {
+            if (err) console.error('Error creating student_id index:', err.message);
+        });
+        db.run(`CREATE UNIQUE INDEX IF NOT EXISTS members_club_id ON members (club_id)`, (err) => {
+            if (err) console.error('Error creating club_id index:', err.message);
+        });
+    });
+    addMissingColumns('join_requests', { student_id: 'TEXT', batch: 'TEXT', department: 'TEXT' });
 });
+
+// Adds any columns from `wanted` that the table doesn't have yet, then calls `done`.
+function addMissingColumns(table, wanted, done) {
+    db.all(`PRAGMA table_info(${table})`, (err, columns) => {
+        if (err) return console.error(`Error reading ${table} columns:`, err.message);
+        const existing = columns.map(c => c.name);
+        db.serialize(() => {
+            Object.entries(wanted).forEach(([name, type]) => {
+                if (existing.includes(name)) return;
+                db.run(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`, (err) => {
+                    if (err) console.error(`Error adding ${table}.${name}:`, err.message);
+                });
+            });
+            if (done) done();
+        });
+    });
+}
 
 module.exports = db;

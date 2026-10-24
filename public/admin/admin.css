@@ -99,9 +99,15 @@ body.admin { background: var(--bg-soft); }
     border-radius: 999px;
     font: inherit;
     min-width: 0;
-    flex: 1;
+    flex: 1 1 220px;
     max-width: 320px;
     background: var(--bg);
+    color: var(--ink);
+}
+.toolbar select { flex: 0 1 190px; }
+/* on phones, search and filters get their own full-width line */
+@media (max-width: 639px) {
+    .toolbar input[type="search"], .toolbar select { flex-basis: 100%; max-width: none; }
 }
 .btn-sm { padding: 6px 14px; font-size: 0.9rem; border-width: 1px; }
 .btn-ghost { background: var(--bg); color: var(--gray); border-color: var(--line); }
@@ -203,7 +209,6 @@ dialog.modal::backdrop { background: rgba(20, 20, 20, 0.55); }
 dialog.modal form { padding: 22px; }
 dialog.modal h2 { font-size: 1.25rem; margin-bottom: 16px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
-.field-row { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
 .field select {
     width: 100%;
     padding: 12px 14px;
@@ -213,6 +218,29 @@ dialog.modal h2 { font-size: 1.25rem; margin-bottom: 16px; }
     background: var(--bg);
 }
 .field .hint { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+.field input:disabled { background: var(--bg-soft); color: var(--muted); cursor: not-allowed; }
+
+/* ---------- confirm box (replaces the browser's confirm()) ---------- */
+
+dialog.confirm-modal { width: min(420px, calc(100% - 24px)); text-align: center; }
+dialog.confirm-modal h2 { margin-bottom: 6px; }
+.confirm-icon {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    background: var(--error-soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+}
+.confirm-message { color: var(--muted); margin-bottom: 18px; }
+dialog.confirm-modal .modal-actions { justify-content: center; }
+dialog.confirm-modal .modal-actions .btn { min-width: 120px; }
+.btn-danger-solid { background: var(--error); border-color: var(--error); color: #fff; }
+.btn-danger-solid:hover { background: #8f1c13; border-color: #8f1c13; }
+body.admin.dark .btn-danger-solid { background: #c0392b; border-color: #c0392b; }
 
 /* ---------- show / hide password ---------- */
 

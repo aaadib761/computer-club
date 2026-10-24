@@ -31,7 +31,7 @@ list.addEventListener('click', async (e) => {
     const button = e.target.closest('button[data-id]');
     if (!button) return;
     const message = messages.find(m => m.id === Number(button.dataset.id));
-    if (!confirm(`Delete the message from ${message.name}?`)) return;
+    if (!(await confirmBox({ title: 'Delete this message?', message: `The message from ${message.name} will be deleted.` }))) return;
     try {
         await adminApi(`/contact/${message.id}`, { method: 'DELETE' });
         toast('Message deleted');

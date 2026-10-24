@@ -149,7 +149,7 @@ photoForm.addEventListener('submit', (e) => {
 
 grid.addEventListener('click', async (e) => {
     const button = e.target.closest('button[data-photo]');
-    if (!button || !confirm('Delete this photo?')) return;
+    if (!button || !(await confirmBox({ title: 'Delete this photo?', message: 'It will be removed from the event gallery.' }))) return;
     try {
         await adminApi(`/events/${encodeURIComponent(eventId)}/photos/${button.dataset.photo}`, { method: 'DELETE' });
         toast('Photo deleted');

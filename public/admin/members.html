@@ -14,10 +14,21 @@
 <body class="admin">
     <main class="admin-main">
         <h1>Members</h1>
-        <p class="page-sub">Give a member a position and rank to show them on the public Committee page.</p>
+        <p class="page-sub">Members with a position (like President) appear on the public Committee page.</p>
 
         <div class="toolbar">
-            <input type="search" id="search" placeholder="Search name, email, position…" aria-label="Search members">
+            <input type="search" id="search" placeholder="Search name, ID, email, position…" aria-label="Search members">
+            <select id="department-filter" aria-label="Filter by department">
+                <option value="">All departments</option>
+            </select>
+            <select id="batch-filter" aria-label="Filter by batch">
+                <option value="">All batches</option>
+            </select>
+            <select id="clubid-filter" aria-label="Filter by club ID">
+                <option value="">Any club ID</option>
+                <option value="missing">No club ID yet</option>
+                <option value="has">Has club ID</option>
+            </select>
             <div class="btn-group">
                 <div class="view-switch" role="group" aria-label="View">
                     <button type="button" data-view="list" aria-pressed="true">☰ List</button>
@@ -47,15 +58,38 @@
             </div>
             <div class="field-row">
                 <div class="field">
-                    <label for="m-position">Position <small>(optional)</small></label>
+                    <label for="m-student-id">Student ID</label>
+                    <input id="m-student-id" name="student_id" required minlength="3" maxlength="30" pattern="[A-Za-z0-9\-]{3,30}" autocomplete="off">
+                </div>
+                <div class="field">
+                    <label for="m-club-id">Club ID <small>(optional)</small></label>
+                    <input id="m-club-id" name="club_id" minlength="3" maxlength="30" pattern="[A-Za-z0-9\-]{3,30}" autocomplete="off">
+                </div>
+            </div>
+            <div class="field-row">
+                <div class="field">
+                    <label for="m-department">Department</label>
+                    <input id="m-department" name="department" required maxlength="60" placeholder="e.g. CSE" list="department-options" autocomplete="off">
+                    <datalist id="department-options"></datalist>
+                </div>
+                <div class="field">
+                    <label for="m-batch">Batch</label>
+                    <input id="m-batch" name="batch" required maxlength="30" placeholder="e.g. 22" list="batch-options" autocomplete="off">
+                    <datalist id="batch-options"></datalist>
+                </div>
+            </div>
+            <p class="hint" style="margin-top:-8px;">IDs use letters, numbers and dashes. IDs, department and batch are private: only admins see them.</p>
+            <div class="field-row">
+                <div class="field">
+                    <label for="m-position">Committee position <small>(optional)</small></label>
                     <input id="m-position" name="position" maxlength="60" placeholder="e.g. President">
                 </div>
                 <div class="field">
-                    <label for="m-rank">Rank <small>(optional)</small></label>
-                    <input id="m-rank" name="position_rank" type="number" min="1" step="1" placeholder="e.g. 1">
+                    <label for="m-rank">Order <small>(optional)</small></label>
+                    <input id="m-rank" name="position_rank" type="number" min="1" max="999" step="1" placeholder="e.g. 1">
                 </div>
             </div>
-            <p class="hint" style="margin-top:-8px;">Rank 1 shows first on the Committee page. Leave rank empty to hide someone from it.</p>
+            <p class="hint" style="margin-top:-8px;">Leave the position empty for regular members. With a position, they show on the Committee page; the order number sets who comes first (1 = first).</p>
             <div class="modal-actions">
                 <button type="button" class="btn btn-ghost" data-close>Cancel</button>
                 <button type="submit" class="btn">Save</button>
