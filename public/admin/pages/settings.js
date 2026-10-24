@@ -3,14 +3,27 @@ const me = renderAdminLayout('settings.html');
 // ---------- club info ----------
 
 const clubForm = document.getElementById('club-form');
+const cardForm = document.getElementById('card-form');
 
 async function loadClubInfo() {
     try {
-        fillForm(clubForm, await api('/settings'));
+        const settings = await api('/settings');
+        fillForm(clubForm, settings);
+        fillForm(cardForm, settings);
     } catch (err) {
         showMessage(clubForm.querySelector('.form-message'), 'error', err.message);
     }
 }
+
+// ---------- membership card ----------
+
+cardForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitting(cardForm, async () => {
+        await adminApi('/settings', { method: 'PUT', body: readForm(cardForm) });
+        showMessage(cardForm.querySelector('.form-message'), 'success', 'Card settings saved. New prints and card checks use them.');
+    });
+});
 
 clubForm.addEventListener('submit', (e) => {
     e.preventDefault();

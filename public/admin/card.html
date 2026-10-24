@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Membership Cards | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin card-page">
+    <main class="card-wrap">
+        <div class="card-toolbar no-print">
+            <a href="members.html">&larr; Members</a>
+            <span class="meta" id="card-count"></span>
+            <button class="btn" id="print-btn" disabled>🖨️ Print</button>
+        </div>
+        <div id="card-warnings" class="no-print"></div>
+
+        <!-- each member gets a row: front | back. Four rows fit on one A4 page. -->
+        <div id="card-sheet" class="card-sheet"></div>
+
+        <p class="meta no-print" style="margin-top: 16px;">
+            Cards print at real ID-card size (85.6 × 54 mm), front and back side by side, 4 members per A4 page.
+            Cut along the dashed lines and stick each back to its front (or laminate them together).
+            In the print window choose <b>"Save as PDF"</b> to keep a digital copy.
+        </p>
+    </main>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script src="pages/card.js"></script>
+</body>
+</html>

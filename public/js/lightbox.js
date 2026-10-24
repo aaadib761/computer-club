@@ -1,5 +1,8 @@
 // Full-screen photo viewer for galleries: arrows, keyboard and swipe.
-// Usage: setupLightbox(galleryElement) — every <a> inside becomes clickable.
+// Usage: setupLightbox(galleryElement) — every photo link (<figure><a>) inside opens it;
+// other links, like "Event details", work normally.
+
+const PHOTO_LINKS = 'figure a';
 
 function setupLightbox(gallery) {
     const box = document.createElement('div');
@@ -35,7 +38,7 @@ function setupLightbox(gallery) {
     }
 
     function open(i) {
-        items = [...gallery.querySelectorAll('a')].map(a => ({
+        items = [...gallery.querySelectorAll(PHOTO_LINKS)].map(a => ({
             src: a.getAttribute('href'),
             caption: a.dataset.caption || '',
         }));
@@ -54,10 +57,10 @@ function setupLightbox(gallery) {
     }
 
     gallery.addEventListener('click', (e) => {
-        const link = e.target.closest('a');
+        const link = e.target.closest(PHOTO_LINKS);
         if (!link) return;
         e.preventDefault();
-        open([...gallery.querySelectorAll('a')].indexOf(link));
+        open([...gallery.querySelectorAll(PHOTO_LINKS)].indexOf(link));
     });
 
     box.querySelector('.lb-close').addEventListener('click', close);

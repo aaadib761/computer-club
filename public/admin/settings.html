@@ -36,6 +36,10 @@
                     <label for="c-address">Address</label>
                     <input id="c-address" name="address" maxlength="200" placeholder="Notre Dame University Bangladesh, Motijheel, Dhaka">
                 </div>
+                <div class="field">
+                    <label for="c-fee">Membership fee <small>(shown on the Join page)</small></label>
+                    <input id="c-fee" name="membership_fee" maxlength="60" placeholder="e.g. 200 BDT">
+                </div>
                 <div class="field-row">
                     <div class="field">
                         <label for="c-facebook">Facebook link</label>
@@ -61,6 +65,26 @@
                     <input id="c-youtube" name="youtube" type="url" maxlength="300" placeholder="https://youtube.com/...">
                 </div>
                 <button class="btn" type="submit">Save club info</button>
+            </form>
+        </section>
+
+        <!-- membership card -->
+        <section class="settings-section">
+            <h2>🪪 Membership card</h2>
+            <p class="meta">What's printed on the back of every card, and until when cards are valid.</p>
+            <form id="card-form" class="card" novalidate>
+                <div class="form-message hidden" role="status"></div>
+                <div class="field">
+                    <label for="k-back">Back side text <small>(one rule per line)</small></label>
+                    <textarea id="k-back" name="card_back_text" maxlength="600" placeholder="This card is the property of NDUB Computer Club.&#10;Show this card at club events.&#10;This card is not transferable."></textarea>
+                    <p class="hint">Leave empty to use the example above. The club's email, phone and address (from Club info) are added automatically.</p>
+                </div>
+                <div class="field" style="max-width: 260px;">
+                    <label for="k-valid">Cards valid until <small>(optional)</small></label>
+                    <input id="k-valid" name="card_valid_until" type="date">
+                    <p class="hint">After this date, scanning a card shows "Card expired". Leave empty for no expiry.</p>
+                </div>
+                <button class="btn" type="submit">Save card settings</button>
             </form>
         </section>
 

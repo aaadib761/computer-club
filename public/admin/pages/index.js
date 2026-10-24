@@ -13,6 +13,7 @@ async function loadDashboard() {
         document.getElementById('stat-upcoming').textContent = upcoming.length;
         document.getElementById('stat-requests').textContent = pending.length;
         document.getElementById('stat-messages').textContent = messages.length;
+        document.getElementById('stat-unpaid').textContent = members.filter(m => m.fee_paid !== 1).length;
 
         document.getElementById('pending').innerHTML = pending.length
             ? pending.slice(0, 5).map(r => `

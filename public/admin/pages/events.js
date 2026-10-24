@@ -38,8 +38,18 @@ function render() {
         <div class="row">
             ${dateBadge(e.date)}
             <div class="row-main">
-                <h3>${escapeHtml(e.title)} ${isUpcoming(e.date) ? '<span class="badge badge-upcoming">upcoming</span>' : ''}</h3>
-                <p class="meta">${formatDate(e.date)}</p>
+                <h3>${escapeHtml(e.title)}
+                    ${e.category ? `<span class="badge badge-role">${escapeHtml(e.category)}</span>` : ''}
+                    ${isUpcoming(e.date) ? '<span class="badge badge-upcoming">upcoming</span>' : ''}
+                </h3>
+                <p class="meta">${[
+                    formatDate(e.date),
+                    e.venue ? escapeHtml(e.venue) : '',
+                    e.speaker ? `🎤 ${escapeHtml(e.speaker)}` : '',
+                    !isUpcoming(e.date) ? `👥 ${e.attendees} attended` : '',
+                    e.registration_open || e.registered ? `📝 ${e.registered}${e.capacity ? ` / ${e.capacity}` : ''} registered` : '',
+                    eventCode(e.id),
+                ].filter(Boolean).join(' · ')}</p>
                 ${e.description ? `<p class="row-text">${escapeHtml(truncate(e.description, 160))}</p>` : ''}
             </div>
             <div class="btn-group">
@@ -67,7 +77,8 @@ list.addEventListener('click', async (e) => {
     if (button.dataset.action === 'edit') {
         editingId = event.id;
         document.getElementById('event-dialog-title').textContent = 'Edit event';
-        fillForm(form, { title: event.title, description: event.description, ...splitDate(event.date) });
+        fillForm(form, { ...event, ...splitDate(event.date) });
+        form.elements.registration_open.checked = !!event.registration_open;
         openModal(dialog);
     }
 
@@ -93,6 +104,13 @@ form.addEventListener('submit', (e) => {
         title: data.title,
         description: data.description || null,
         date: data.time ? `${data.date}T${data.time}` : data.date,
+        category: data.category || null,
+        speaker: data.speaker || null,
+        speaker_title: data.speaker_title || null,
+        venue: data.venue || null,
+        duration: data.duration || null,
+        registration_open: form.elements.registration_open.checked,
+        capacity: data.capacity ? Number(data.capacity) : null,
     };
     submitting(form, async () => {
         if (editingId) {

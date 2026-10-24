@@ -20,12 +20,31 @@ async function loadEvent() {
             api(`/events/${encodeURIComponent(eventId)}/photos`),
         ]);
 
+        const status = eventStatus(event);
         document.title = `${event.title} | NDUB Computer Club`;
         title.textContent = event.title;
-        date.innerHTML = `${formatDate(event.date)} ${isUpcoming(event.date) ? '&middot; <b style="color: var(--orange-dark);">Upcoming</b>' : ''}`;
-        body.innerHTML = event.description
-            ? `<div class="card"><p class="text-pre" style="margin:0;">${escapeHtml(event.description)}</p></div>`
+        date.innerHTML = `
+            <span class="event-tags" style="display:inline-flex; margin: 0 6px 0 0;">
+                ${event.category ? `<span class="tag">${escapeHtml(event.category)}</span>` : ''}
+                <span class="tag tag-${status.key}">${status.label}</span>
+            </span>
+            ${formatDate(event.date)}`;
+
+        // only show the details that were filled in
+        const detail = (label, value, sub) => value
+            ? `<div class="detail"><small>${label}</small><b>${escapeHtml(value)}</b>${sub ? `<span>${escapeHtml(sub)}</span>` : ''}</div>`
             : '';
+        const details = [
+            detail('Resource person', event.speaker, event.speaker_title),
+            detail('Venue', event.venue),
+            detail('Duration', event.duration),
+            status.key === 'completed' && event.attendees ? detail('Attended', `${event.attendees} members`) : '',
+            detail('Event code', eventCode(event.id)),
+        ].join('');
+
+        body.innerHTML = `
+            <div class="detail-grid">${details}</div>
+            ${event.description ? `<div class="card"><p class="text-pre" style="margin:0;">${escapeHtml(event.description)}</p></div>` : ''}`;
 
         gallery.innerHTML = photos.length
             ? photos.map(p => `

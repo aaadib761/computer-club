@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About | NDUB Computer Club</title>
+    <meta name="description" content="About NDUB Computer Club: our story, objectives, advisors and moderators.">
+    <link rel="icon" href="images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header id="site-header"></header>
+
+    <main>
+        <section class="page-head">
+            <div class="container">
+                <h1>About NDUBCC</h1>
+                <p>Who we are, what we do, and the people who guide us.</p>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="container about-layout">
+                <div>
+                    <h2>Our story</h2>
+                    <div id="about-text" class="about-text"></div>
+                    <div id="objectives-wrap" class="hidden">
+                        <h2 style="margin-top: 28px;">Objectives</h2>
+                        <ul id="objectives" class="objective-list"></ul>
+                    </div>
+                </div>
+                <aside class="card about-facts">
+                    <img src="images/logo.png" alt="NDUB Computer Club logo">
+                    <ul class="info-list">
+                        <li id="fact-founded" class="hidden"></li>
+                        <li id="fact-members"></li>
+                        <li id="fact-events"></li>
+                    </ul>
+                    <a class="btn" href="join.html" style="width: 100%; text-align: center;">Join the Club</a>
+                </aside>
+            </div>
+        </section>
+
+        <section class="section" id="advisors-section" style="background: var(--bg-soft);">
+            <div class="container">
+                <h2>Advisors &amp; Moderators</h2>
+                <p class="meta" style="margin-bottom: 16px;">Faculty members who guide the club.</p>
+                <div id="advisors" class="grid grid-3">
+                    <div class="loading">Loading…</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer id="site-footer"></footer>
+
+    <script src="js/common.js"></script>
+    <script src="js/pages/about.js"></script>
+</body>
+</html>

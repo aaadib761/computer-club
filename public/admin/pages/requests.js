@@ -22,6 +22,9 @@ function render() {
     }
     list.innerHTML = shown.map(r => `
         <div class="row">
+            ${r.photo_path
+                ? `<a href="${escapeHtml(photoUrl(r.photo_path))}" target="_blank" rel="noopener" title="Open photo">${avatarHtml(r)}</a>`
+                : avatarHtml(r)}
             <div class="row-main">
                 <h3>${escapeHtml(r.name)} ${statusBadge(r.status)}</h3>
                 <p class="meta">

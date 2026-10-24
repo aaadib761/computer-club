@@ -17,6 +17,38 @@
         <h1 id="title">Loading…</h1>
         <p class="page-sub" id="subtitle"></p>
 
+        <section class="card checkin-card" style="margin-bottom: 28px;">
+            <div class="section-title">
+                <h2 style="margin: 0;">📷 Door check-in</h2>
+                <div class="btn-group">
+                    <button class="btn btn-sm" id="scan-start">Start scanning</button>
+                    <button class="btn btn-sm btn-ghost hidden" id="scan-stop">Stop</button>
+                </div>
+            </div>
+            <p class="meta">Scan members' ID-card QR codes with the camera; each scan marks them present. You can also type a club ID.</p>
+            <div class="checkin-layout">
+                <div class="scanner hidden" id="scanner">
+                    <video id="scan-video" playsinline muted></video>
+                    <div class="scan-frame" aria-hidden="true"></div>
+                </div>
+                <div class="checkin-side">
+                    <div id="scan-result" class="scan-result" role="status" aria-live="polite"></div>
+                    <form id="manual-checkin" class="verify-row">
+                        <input name="club_id" placeholder="Club ID, e.g. NDUBCC-001" aria-label="Club ID" autocomplete="off">
+                        <button class="btn btn-ghost" type="submit">Check in</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <section id="registrations-section" class="hidden" style="margin-bottom: 36px;">
+            <div class="section-title">
+                <h2>Registrations</h2>
+                <span class="meta" id="registrations-summary"></span>
+            </div>
+            <div id="registrations" class="list"></div>
+        </section>
+
         <section>
             <div class="section-title">
                 <h2>Attendance</h2>
@@ -48,10 +80,18 @@
             </form>
             <div id="photo-grid" class="photo-grid"></div>
         </section>
+
+        <section id="certificates-section" class="hidden" style="margin-top: 36px;">
+            <div class="section-title"><h2>🎓 Certificates</h2></div>
+            <p class="meta">Everyone marked present or late can get a participation certificate. Members can also download theirs from the event's page on the website.</p>
+            <div id="certificates" class="list"></div>
+        </section>
     </main>
 
     <script src="../js/common.js"></script>
     <script src="admin.js"></script>
     <script src="pages/event.js"></script>
+    <script src="pages/event-extras.js"></script>
+    <script src="pages/checkin.js"></script>
 </body>
 </html>

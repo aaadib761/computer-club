@@ -97,6 +97,7 @@ const ADMIN_PAGES = [
     { href: 'members.html', label: 'Members', icon: '👥' },
     { href: 'events.html', label: 'Events', icon: '📅' },
     { href: 'announcements.html', label: 'Announcements', icon: '📢' },
+    { href: 'about.html', label: 'About & Advisors', icon: '🏫' },
     { href: 'requests.html', label: 'Join Requests', icon: '✋', count: 'requests' },
     { href: 'messages.html', label: 'Messages', icon: '✉️', count: 'messages' },
     { href: 'settings.html', label: 'Settings', icon: '⚙️' },

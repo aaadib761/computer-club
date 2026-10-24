@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About &amp; Advisors | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+    <main class="admin-main">
+        <h1>About &amp; Advisors</h1>
+        <p class="page-sub">Everything on the public About page, plus the committee's term and history.</p>
+
+        <!-- about text -->
+        <section class="settings-section">
+            <h2>📖 About the club</h2>
+            <p class="meta">Shown on the website's About page. Leave a blank line between paragraphs.</p>
+            <form id="about-form" class="card" novalidate>
+                <div class="form-message hidden" role="status"></div>
+                <div class="field">
+                    <label for="a-text">Our story</label>
+                    <textarea id="a-text" name="about_text" maxlength="3000" style="min-height: 180px;" placeholder="When the club started, what it does, what makes it special…"></textarea>
+                </div>
+                <div class="field">
+                    <label for="a-objectives">Objectives <small>(one per line)</small></label>
+                    <textarea id="a-objectives" name="objectives" maxlength="2000" placeholder="Help students improve their programming skills&#10;Organise seminars and workshops"></textarea>
+                </div>
+                <div class="field" style="max-width: 220px;">
+                    <label for="a-founded">Founded in <small>(year)</small></label>
+                    <input id="a-founded" name="founded_year" inputmode="numeric" maxlength="4" pattern="(19|20)[0-9]{2}" placeholder="e.g. 2017">
+                </div>
+                <button class="btn" type="submit">Save about text</button>
+            </form>
+        </section>
+
+        <!-- committee term -->
+        <section class="settings-section">
+            <h2>🏛️ Committee term</h2>
+            <p class="meta">The name shown above the committee, like "13th Executive Committee". When a term ends, archive it before changing positions, so it's kept under "Past committees".</p>
+            <form id="term-form" class="card" novalidate>
+                <div class="form-message hidden" role="status"></div>
+                <div class="field">
+                    <label for="t-term">Current term name</label>
+                    <input id="t-term" name="committee_term" maxlength="80" placeholder="e.g. 13th Executive Committee">
+                </div>
+                <div class="btn-group">
+                    <button class="btn" type="submit">Save term name</button>
+                    <button class="btn btn-ghost" type="button" id="archive-btn">🗄️ Archive current committee</button>
+                </div>
+            </form>
+            <h3 style="margin-top: 20px;">Past committees</h3>
+            <div id="archive" class="list"><div class="loading">Loading…</div></div>
+        </section>
+
+        <!-- advisors -->
+        <section class="settings-section">
+            <div class="section-title">
+                <h2 style="margin: 0;">🎓 Advisors &amp; Moderators</h2>
+                <button class="btn btn-sm" id="add-advisor-btn">+ Add person</button>
+            </div>
+            <p class="meta">Faculty members shown on the About page, in the order you choose.</p>
+            <div id="advisors" class="list"><div class="loading">Loading…</div></div>
+        </section>
+    </main>
+
+    <dialog class="modal" id="advisor-dialog">
+        <form id="advisor-form" novalidate>
+            <h2 id="advisor-dialog-title">Add person</h2>
+            <div class="form-message hidden" role="status"></div>
+            <div class="field">
+                <label for="ad-name">Name</label>
+                <input id="ad-name" name="name" required maxlength="100">
+            </div>
+            <div class="field-row">
+                <div class="field">
+                    <label for="ad-role">Role in the club</label>
+                    <input id="ad-role" name="role" required maxlength="60" list="role-options" placeholder="e.g. Moderator">
+                    <datalist id="role-options">
+                        <option value="Advisor"><option value="Moderator"><option value="Co-Moderator">
+                    </datalist>
+                </div>
+                <div class="field">
+                    <label for="ad-order">Order <small>(optional)</small></label>
+                    <input id="ad-order" name="sort_order" type="number" min="1" max="999" step="1" placeholder="e.g. 1">
+                </div>
+            </div>
+            <div class="field">
+                <label for="ad-designation">Designation <small>(optional)</small></label>
+                <input id="ad-designation" name="designation" maxlength="120" placeholder="e.g. Lecturer, Department of CSE, NDUB">
+            </div>
+            <div class="field">
+                <label for="ad-message">Message <small>(optional)</small></label>
+                <textarea id="ad-message" name="message" maxlength="1500" placeholder="A short message for students"></textarea>
+            </div>
+            <div class="field">
+                <label for="ad-url">Profile link <small>(optional)</small></label>
+                <input id="ad-url" name="profile_url" type="url" maxlength="300" placeholder="https://ndub.edu.bd/...">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn">Save</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="modal" id="advisor-photo-dialog">
+        <form id="advisor-photo-form">
+            <h2>Photo for <span id="ap-name"></span></h2>
+            <div class="form-message hidden" role="status"></div>
+            <div id="ap-current" style="margin-bottom: 16px;"></div>
+            <div class="field">
+                <label for="ap-file">Choose a photo <small>(JPG, PNG or WEBP, max 5 MB)</small></label>
+                <input id="ap-file" name="photo" type="file" accept="image/jpeg,image/png,image/webp" required>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-danger" id="ap-remove">Remove photo</button>
+                <span style="flex:1"></span>
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn">Upload</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script src="pages/about.js"></script>
+</body>
+</html>

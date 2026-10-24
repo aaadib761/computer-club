@@ -3,7 +3,9 @@
 const NAV_LINKS = [
     { href: 'index.html', label: 'Home' },
     { href: 'events.html', label: 'Events' },
+    { href: 'gallery.html', label: 'Gallery' },
     { href: 'committee.html', label: 'Committee' },
+    { href: 'about.html', label: 'About' },
     { href: 'contact.html', label: 'Contact' },
 ];
 
@@ -45,7 +47,7 @@ function renderFooter() {
     footer.innerHTML = `
         <div class="container">
             <span>&copy; ${new Date().getFullYear()} <b>NDUB</b> Computer Club &middot; Notre Dame University Bangladesh</span>
-            <span><a href="contact.html">Contact us</a> &middot; <a href="join.html">Become a member</a>
+            <span><a href="contact.html">Contact us</a> &middot; <a href="join.html">Become a member</a> &middot; <a href="verify.html">Verify a card</a>
                 <button class="term-open" title="Open the secret terminal (or press \`)" aria-label="Open terminal">&gt;_</button></span>
         </div>
         <div class="container footer-social hidden" id="footer-social"></div>
@@ -85,10 +87,12 @@ function fillDepartmentOptions(datalist, extra = []) {
 }
 
 // Fetch JSON from our API; throws an Error with the server's message on failure.
+// A FormData body (forms with a photo) is sent as-is; anything else is sent as JSON.
 async function api(path, options = {}) {
+    const isForm = options.body instanceof FormData;
     const res = await fetch(path, {
         ...options,
-        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        headers: { ...(isForm ? {} : { 'Content-Type': 'application/json' }), ...(options.headers || {}) },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
@@ -157,13 +161,38 @@ function initials(name) {
     return String(name || '?').trim().split(/\s+/).slice(0, 2).map(part => part[0].toUpperCase()).join('');
 }
 
+// e.g. NDUBCC-EVT-0007, made from the event's id so it never needs typing
+function eventCode(id) {
+    return `NDUBCC-EVT-${String(id).padStart(4, '0')}`;
+}
+
+// Upcoming / Today / Completed, worked out from the date
+function eventStatus(event) {
+    const date = parseDate(event.date);
+    if (!date) return { label: 'Scheduled', key: 'upcoming' };
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) return { label: 'Today', key: 'today' };
+    return isUpcoming(event.date) ? { label: 'Upcoming', key: 'upcoming' } : { label: 'Completed', key: 'completed' };
+}
+
 function eventCard(event) {
     const past = !isUpcoming(event.date);
+    const status = eventStatus(event);
+    const details = [
+        event.speaker ? `🎤 ${escapeHtml(event.speaker)}` : '',
+        event.venue ? `📍 ${escapeHtml(event.venue)}` : '',
+        past && event.attendees ? `👥 ${event.attendees} attended` : '',
+    ].filter(Boolean).join(' · ');
     return `<a class="card event-card ${past ? 'past' : ''}" href="event.html?id=${encodeURIComponent(event.id)}">
         ${dateBadge(event.date)}
         <div>
+            <div class="event-tags">
+                ${event.category ? `<span class="tag">${escapeHtml(event.category)}</span>` : ''}
+                <span class="tag tag-${status.key}">${status.label}</span>
+            </div>
             <h3>${escapeHtml(event.title)}</h3>
             <div class="meta">${formatDate(event.date)}</div>
+            ${details ? `<div class="meta">${details}</div>` : ''}
             ${event.description ? `<p>${escapeHtml(truncate(event.description, 140))}</p>` : ''}
         </div>
     </a>`;
@@ -180,34 +209,45 @@ function showMessage(element, type, text) {
     element.textContent = text;
 }
 
-// Sends a public form (join / contact) to the API as JSON and shows the result.
-function setupForm(formId, path, successText) {
+// Sends a public form (join / contact) to the API and shows the result.
+// Forms with a file input (the Join photo) go as form-data, others as JSON.
+function setupForm(formId, path, successText, { onSuccess } = {}) {
     const form = document.getElementById(formId);
     const message = form.querySelector('.form-message');
     const button = form.querySelector('button[type="submit"]');
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const data = Object.fromEntries(new FormData(form));
-        Object.keys(data).forEach(key => { data[key] = data[key].trim(); });
 
         const invalid = form.querySelector(':invalid');
         if (invalid) {
+            // a field can give its own message with data-error="..."
             const label = invalid.labels?.[0]?.childNodes[0]?.textContent.trim() || 'the highlighted field';
-            showMessage(message, 'error', invalid.value.trim()
+            const hasValue = invalid.type === 'file' ? invalid.files.length : invalid.value.trim();
+            showMessage(message, 'error', invalid.dataset.error || (hasValue
                 ? `Please check "${label}" — it doesn't look right.`
-                : `Please fill in "${label}".`);
+                : `Please fill in "${label}".`));
             message.scrollIntoView({ behavior: 'smooth', block: 'center' });
             invalid.focus({ preventScroll: true });
             return;
         }
 
+        let body;
+        if (form.querySelector('input[type="file"]')) {
+            body = new FormData(form);
+        } else {
+            const data = Object.fromEntries(new FormData(form));
+            Object.keys(data).forEach(key => { data[key] = data[key].trim(); });
+            body = JSON.stringify(data);
+        }
+
         button.disabled = true;
         button.textContent = 'Sending…';
         try {
-            await api(path, { method: 'POST', body: JSON.stringify(data) });
+            await api(path, { method: 'POST', body });
             showMessage(message, 'success', successText);
             form.reset();
+            if (onSuccess) onSuccess();
         } catch (err) {
             showMessage(message, 'error', err.message);
         } finally {

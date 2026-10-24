@@ -29,11 +29,17 @@
                 <option value="missing">No club ID yet</option>
                 <option value="has">Has club ID</option>
             </select>
+            <select id="fee-filter" aria-label="Filter by membership fee">
+                <option value="">Any fee status</option>
+                <option value="unpaid">Fee not paid</option>
+                <option value="paid">Fee paid</option>
+            </select>
             <div class="btn-group">
                 <div class="view-switch" role="group" aria-label="View">
                     <button type="button" data-view="list" aria-pressed="true">☰ List</button>
                     <button type="button" data-view="grid" aria-pressed="false">▦ Grid</button>
                 </div>
+                <button class="btn btn-ghost" id="print-cards-btn" title="Print ID cards for the members shown below">🖨️ Print cards</button>
                 <button class="btn" id="add-btn">+ Add member</button>
             </div>
         </div>
@@ -53,8 +59,9 @@
                 <input id="m-email" name="email" type="email" required maxlength="150">
             </div>
             <div class="field">
-                <label for="m-phone">Phone <small>(optional)</small></label>
-                <input id="m-phone" name="phone" type="tel" maxlength="30">
+                <label for="m-phone">Phone number</label>
+                <input id="m-phone" name="phone" type="tel" required maxlength="30" placeholder="e.g. 01712-345678"
+                    pattern="(?=(?:\D*\d){7,15}\D*$)\+?[0-9\s\(\)\-]+">
             </div>
             <div class="field-row">
                 <div class="field">
@@ -93,6 +100,23 @@
             <div class="modal-actions">
                 <button type="button" class="btn btn-ghost" data-close>Cancel</button>
                 <button type="submit" class="btn">Save</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="modal" id="fee-dialog">
+        <form id="fee-form" novalidate>
+            <h2>Membership fee: <span id="fee-name"></span></h2>
+            <div class="form-message hidden" role="status"></div>
+            <p id="fee-status" class="meta"></p>
+            <div class="field">
+                <label for="fee-note">Note <small>(optional)</small></label>
+                <input id="fee-note" name="fee_note" maxlength="120" placeholder="e.g. Receipt #102, collected by Mahin">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="button" class="btn btn-ghost" id="fee-unpaid">Mark as unpaid</button>
+                <button type="submit" class="btn" id="fee-paid">Mark as paid</button>
             </div>
         </form>
     </dialog>

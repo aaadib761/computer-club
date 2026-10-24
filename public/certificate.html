@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Certificate | NDUB Computer Club</title>
+    <meta name="description" content="Certificate of participation from NDUB Computer Club.">
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="certificate-page">
+    <main class="cert-wrap">
+        <div class="cert-toolbar no-print">
+            <a href="index.html">&larr; NDUB Computer Club</a>
+            <button class="btn" id="print-btn" disabled>🖨️ Print / Save as PDF</button>
+        </div>
+        <div id="cert-status" class="no-print"></div>
+
+        <article id="certificate" class="certificate hidden" aria-label="Certificate of participation">
+            <div class="cert-inner">
+                <img class="cert-logo" src="images/logo.png" alt="NDUB Computer Club logo">
+                <p class="cert-club">NDUB Computer Club · Notre Dame University Bangladesh</p>
+                <h1>Certificate of Participation</h1>
+                <p class="cert-line">This is to certify that</p>
+                <p class="cert-name" id="cert-name"></p>
+                <p class="cert-line" id="cert-text"></p>
+
+                <div class="cert-footer">
+                    <div class="cert-sign">
+                        <span class="cert-sign-name" id="sign-president"></span>
+                        <span>President, NDUBCC</span>
+                    </div>
+                    <div class="cert-verify">
+                        <img id="cert-qr" alt="QR code to verify this certificate">
+                        <span id="cert-code"></span>
+                    </div>
+                    <div class="cert-sign">
+                        <span class="cert-sign-name" id="sign-moderator"></span>
+                        <span>Moderator, NDUBCC</span>
+                    </div>
+                </div>
+            </div>
+        </article>
+    </main>
+
+    <script src="js/common.js"></script>
+    <script src="js/pages/certificate.js"></script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 renderAdminLayout('members.html');
 
 let members = null;   // null until loaded
+let lastShown = [];   // members currently visible after search and filters
 let editingId = null;
 let photoMemberId = null;
 
@@ -10,6 +11,9 @@ const memberDialog = document.getElementById('member-dialog');
 const memberForm = document.getElementById('member-form');
 const photoDialog = document.getElementById('photo-dialog');
 const photoForm = document.getElementById('photo-form');
+const feeDialog = document.getElementById('fee-dialog');
+const feeForm = document.getElementById('fee-form');
+let feeMemberId = null;
 // filter dropdowns + form suggestions, built from the values members already have
 const FILTERS = [
     { field: 'department', select: document.getElementById('department-filter'), all: 'All departments', none: 'No department', suggestions: 'department-options' },
@@ -42,11 +46,29 @@ function refreshFilters() {
 
 // club IDs are given by the club after approval; this finds who's still waiting for one
 const clubIdFilter = document.getElementById('clubid-filter');
+const feeFilter = document.getElementById('fee-filter');
 
 function matchesFilters(m) {
     const clubIdOk = !clubIdFilter.value || (clubIdFilter.value === 'missing' ? !m.club_id : !!m.club_id);
-    return clubIdOk && FILTERS.every(({ field, select }) =>
+    const feeOk = !feeFilter.value || (feeFilter.value === 'paid' ? m.fee_paid === 1 : m.fee_paid !== 1);
+    return clubIdOk && feeOk && FILTERS.every(({ field, select }) =>
         !select.value || (select.value === '__none__' ? !m[field] : m[field] === select.value));
+}
+
+function feeBadge(m) {
+    return m.fee_paid === 1
+        ? '<span class="badge badge-approved">Fee paid</span>'
+        : '<span class="badge badge-rejected">Fee unpaid</span>';
+}
+
+// the same buttons in list and grid view
+function actionButtons(m, compact) {
+    return `
+        <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${m.id}">Edit</button>
+        <button class="btn btn-sm btn-ghost" data-action="photo" data-id="${m.id}">Photo</button>
+        <button class="btn btn-sm btn-ghost" data-action="fee" data-id="${m.id}">Fee</button>
+        <a class="btn btn-sm btn-ghost" href="card.html?id=${encodeURIComponent(m.id)}" target="_blank" rel="noopener">ID card</a>
+        <button class="btn btn-sm btn-danger" data-action="delete" data-id="${m.id}" aria-label="Delete ${escapeHtml(m.name)}">${compact ? '🗑' : 'Delete'}</button>`;
 }
 
 // "ID 123 · Club NDUBCC-01 · CSE · Batch 22", with warnings for anything required that's missing
@@ -57,6 +79,7 @@ function idsHtml(m) {
         m.club_id ? `Club ${escapeHtml(m.club_id)}` : '',
         m.department ? escapeHtml(m.department) : missing('department'),
         m.batch ? `Batch ${escapeHtml(m.batch)}` : missing('batch'),
+        m.phone ? '' : missing('phone'),
     ].filter(Boolean).join(' · ');
 }
 
@@ -67,6 +90,7 @@ function render() {
         [m.name, m.email, m.phone, m.position, m.student_id, m.club_id, m.department, m.batch]
             .some(v => (v || '').toLowerCase().includes(q)) && matchesFilters(m));
 
+    lastShown = shown;
     list.className = view === 'grid' ? 'member-grid' : 'list';
     if (!shown.length) {
         list.innerHTML = `<div class="empty" style="grid-column: 1 / -1;">${members.length ? 'No members match your search.' : 'No members yet. Add the first one!'}</div>`;
@@ -81,15 +105,12 @@ function render() {
                 <div class="tile-body">
                     <h3>${escapeHtml(m.name)}</h3>
                     ${m.position ? `<span class="badge badge-role">${escapeHtml(m.position)}</span>` : ''}
+                    ${feeBadge(m)}
                     <p class="meta">${idsHtml(m)}</p>
                     <p class="meta">${escapeHtml(m.email)}</p>
                     ${m.phone ? `<p class="meta">${escapeHtml(m.phone)}</p>` : ''}
                 </div>
-                <div class="tile-actions">
-                    <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${m.id}">Edit</button>
-                    <button class="btn btn-sm btn-ghost" data-action="photo" data-id="${m.id}">Photo</button>
-                    <button class="btn btn-sm btn-danger" data-action="delete" data-id="${m.id}" aria-label="Delete ${escapeHtml(m.name)}">🗑</button>
-                </div>
+                <div class="tile-actions">${actionButtons(m, true)}</div>
             </div>`).join('');
         return;
     }
@@ -99,21 +120,35 @@ function render() {
             <div class="row-main">
                 <h3>${escapeHtml(m.name)}
                     ${m.position ? `<span class="badge badge-role">${escapeHtml(m.position)}</span>` : ''}
+                    ${feeBadge(m)}
                 </h3>
                 <p class="meta">${idsHtml(m)}</p>
                 <p class="meta">${escapeHtml(m.email)}${m.phone ? ` · ${escapeHtml(m.phone)}` : ''}</p>
             </div>
-            <div class="btn-group">
-                <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${m.id}">Edit</button>
-                <button class="btn btn-sm btn-ghost" data-action="photo" data-id="${m.id}">Photo</button>
-                <button class="btn btn-sm btn-danger" data-action="delete" data-id="${m.id}">Delete</button>
-            </div>
+            <div class="btn-group">${actionButtons(m, false)}</div>
         </div>`).join('');
 }
 
 search.addEventListener('input', render);
+
+// print ID cards for everyone currently shown (use the filters first to pick a group)
+document.getElementById('print-cards-btn').addEventListener('click', async () => {
+    const withClubId = lastShown.filter(m => m.club_id);
+    if (!withClubId.length) {
+        return toast('None of the members shown have a club ID yet, so there are no cards to print.', 'error');
+    }
+    const skipped = lastShown.length - withClubId.length;
+    const ok = await confirmBox({
+        title: `Print ${withClubId.length} card${withClubId.length === 1 ? '' : 's'}?`,
+        message: `Cards for the members shown in the list${skipped ? ` (${skipped} without a club ID will be skipped)` : ''}. Use the filters first to print just one group, like a batch.`,
+        confirmText: 'Open cards',
+        danger: false,
+    });
+    if (ok) window.open(`card.html?ids=${withClubId.map(m => m.id).join(',')}`, '_blank', 'noopener');
+});
 FILTERS.forEach(({ select }) => select.addEventListener('change', render));
 clubIdFilter.addEventListener('change', render);
+feeFilter.addEventListener('change', render);
 
 // list or grid, remembered in this browser
 const VIEW_KEY = 'ndubcc_members_view';
@@ -161,6 +196,18 @@ list.addEventListener('click', async (e) => {
         openModal(memberDialog);
     }
 
+    if (button.dataset.action === 'fee') {
+        feeMemberId = member.id;
+        document.getElementById('fee-name').textContent = member.name;
+        document.getElementById('fee-status').textContent = member.fee_paid === 1
+            ? `Paid on ${formatDate(member.fee_paid_at, { isUtc: true })}.`
+            : 'Not paid yet.';
+        feeForm.reset();
+        feeForm.elements.fee_note.value = member.fee_note || '';
+        document.getElementById('fee-unpaid').classList.toggle('hidden', member.fee_paid !== 1);
+        openModal(feeDialog);
+    }
+
     if (button.dataset.action === 'photo') {
         photoMemberId = member.id;
         document.getElementById('photo-name').textContent = member.name;
@@ -199,7 +246,7 @@ memberForm.addEventListener('submit', (e) => {
     const body = {
         name: data.name,
         email: data.email,
-        phone: data.phone || null,
+        phone: data.phone,
         student_id: data.student_id,
         club_id: data.club_id || null,
         department: data.department,
@@ -218,6 +265,28 @@ memberForm.addEventListener('submit', (e) => {
         memberDialog.close();
         load();
     });
+});
+
+async function saveFee(paid) {
+    const fee_note = feeForm.elements.fee_note.value.trim() || null;
+    await adminApi(`/members/${feeMemberId}/fee`, { method: 'PUT', body: { paid, fee_note } });
+    toast(paid ? 'Marked as paid' : 'Marked as unpaid');
+    feeDialog.close();
+    load();
+}
+
+feeForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitting(feeForm, () => saveFee(true));
+});
+
+document.getElementById('fee-unpaid').addEventListener('click', async () => {
+    if (!(await confirmBox({ title: 'Mark as unpaid?', message: 'Use this only if the fee was recorded by mistake.', confirmText: 'Mark unpaid' }))) return;
+    try {
+        await saveFee(false);
+    } catch (err) {
+        toast(err.message, 'error');
+    }
 });
 
 photoForm.addEventListener('submit', (e) => {

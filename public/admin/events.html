@@ -45,6 +45,49 @@
                     <input id="e-time" name="time" type="time">
                 </div>
             </div>
+            <div class="field-row">
+                <div class="field">
+                    <label for="e-category">Category <small>(optional)</small></label>
+                    <select id="e-category" name="category">
+                        <option value="">— Choose —</option>
+                        <option>Seminar</option>
+                        <option>Workshop</option>
+                        <option>Contest</option>
+                        <option>Fest</option>
+                        <option>Picnic</option>
+                        <option>Meetup</option>
+                        <option>Other</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="e-duration">Duration <small>(optional)</small></label>
+                    <input id="e-duration" name="duration" maxlength="30" placeholder="e.g. 1.5 hours">
+                </div>
+            </div>
+            <div class="field-row">
+                <div class="field">
+                    <label for="e-speaker">Resource person <small>(optional)</small></label>
+                    <input id="e-speaker" name="speaker" maxlength="100" placeholder="Speaker's name">
+                </div>
+                <div class="field">
+                    <label for="e-speaker-title">Their title <small>(optional)</small></label>
+                    <input id="e-speaker-title" name="speaker_title" maxlength="120" placeholder="e.g. Lecturer, Dept. of CSE">
+                </div>
+            </div>
+            <div class="field">
+                <label for="e-venue">Venue <small>(optional)</small></label>
+                <input id="e-venue" name="venue" maxlength="120" placeholder="e.g. NDUB Open Space">
+            </div>
+            <div class="field-row">
+                <label class="check" style="margin: 30px 0 0;">
+                    <input type="checkbox" name="registration_open" id="e-registration">
+                    <span>Members can register online</span>
+                </label>
+                <div class="field">
+                    <label for="e-capacity">Seat limit <small>(optional)</small></label>
+                    <input id="e-capacity" name="capacity" type="number" min="1" max="10000" step="1" placeholder="No limit">
+                </div>
+            </div>
             <div class="field">
                 <label for="e-description">Description <small>(optional)</small></label>
                 <textarea id="e-description" name="description" maxlength="3000"></textarea>

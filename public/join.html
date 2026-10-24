@@ -22,6 +22,16 @@
 
         <section class="section">
             <div class="container">
+                <div class="card form-card steps-card">
+                    <h2 style="font-size: 1.15rem;">How joining works</h2>
+                    <ol class="steps">
+                        <li>Fill in this form with your <b>NDUB student email</b> and a recent photo.</li>
+                        <li>The committee reviews your application.</li>
+                        <li>Once approved, pay the one-time membership fee<span id="fee-amount"></span>.</li>
+                        <li>You receive your <b>Club ID</b> and membership card.</li>
+                    </ol>
+                </div>
+
                 <form id="join-form" class="card form-card" novalidate>
                     <div class="form-message hidden" role="status"></div>
 
@@ -45,19 +55,40 @@
                         </div>
                     </div>
                     <div class="field">
-                        <label for="email">Email</label>
-                        <input id="email" name="email" type="email" required maxlength="150" autocomplete="email">
+                        <label for="email">NDUB student email</label>
+                        <input id="email" name="email" type="email" required maxlength="150" autocomplete="email"
+                            placeholder="yourname@student.ndub.edu.bd"
+                            data-error="Please use your NDUB student email, ending in @student.ndub.edu.bd.">
                     </div>
                     <div class="field">
-                        <label for="phone">Phone <small>(optional)</small></label>
-                        <input id="phone" name="phone" type="tel" maxlength="30" autocomplete="tel">
+                        <label for="phone">Phone number</label>
+                        <input id="phone" name="phone" type="tel" required maxlength="30" autocomplete="tel"
+                            placeholder="e.g. 01712-345678"
+                            pattern="(?=(?:\D*\d){7,15}\D*$)\+?[0-9\s\(\)\-]+"
+                            data-error="Please enter a valid phone number (7-15 digits).">
                     </div>
                     <div class="field">
                         <label for="reason">Why do you want to join? <small>(optional)</small></label>
                         <textarea id="reason" name="reason" maxlength="1000"></textarea>
                     </div>
+                    <div class="field">
+                        <label for="photo">Your photo</label>
+                        <div class="photo-pick">
+                            <img id="photo-preview" class="photo-preview hidden" alt="Preview of your photo">
+                            <div>
+                                <input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" required
+                                    data-error="Please add a recent photo of yourself (JPG, PNG or WEBP).">
+                                <p class="hint">A clear, recent photo of your face, like a passport photo. JPG, PNG or WEBP, up to 5 MB. It's used for your membership card.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <label class="check">
+                        <input type="checkbox" name="declaration" required
+                            data-error="Please tick the declaration to confirm your information is correct.">
+                        <span>I confirm that the information above is correct, and I agree to follow the rules of NDUB Computer Club.</span>
+                    </label>
 
-                    <button class="btn" type="submit">Send Request</button>
+                    <button class="btn" type="submit">Send Application</button>
                 </form>
             </div>
         </section>

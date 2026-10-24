@@ -152,7 +152,15 @@ db.serialize(() => {
         last_login_at: 'DATETIME',
         password_changed_at: 'DATETIME',
     });
-    addMissingColumns('members', { student_id: 'TEXT', club_id: 'TEXT', batch: 'TEXT', department: 'TEXT' }, () => {
+    addMissingColumns('members', {
+        student_id: 'TEXT',
+        club_id: 'TEXT',
+        batch: 'TEXT',
+        department: 'TEXT',
+        fee_paid: 'INTEGER NOT NULL DEFAULT 0',  // one-time membership fee: 1 = paid
+        fee_paid_at: 'DATETIME',
+        fee_note: 'TEXT',                        // e.g. receipt number or who collected it
+    }, () => {
         // no two members can share a student or club ID (empty ones are allowed to repeat)
         db.run(`CREATE UNIQUE INDEX IF NOT EXISTS members_student_id ON members (student_id)`, (err) => {
             if (err) console.error('Error creating student_id index:', err.message);
@@ -161,7 +169,54 @@ db.serialize(() => {
             if (err) console.error('Error creating club_id index:', err.message);
         });
     });
-    addMissingColumns('join_requests', { student_id: 'TEXT', batch: 'TEXT', department: 'TEXT' });
+    addMissingColumns('join_requests', { student_id: 'TEXT', batch: 'TEXT', department: 'TEXT', photo_path: 'TEXT' });
+    addMissingColumns('events', {
+        category: 'TEXT',       // Seminar, Workshop, Contest...
+        speaker: 'TEXT',        // resource person
+        speaker_title: 'TEXT',  // e.g. "Lecturer, Department of CSE"
+        venue: 'TEXT',
+        duration: 'TEXT',       // e.g. "1.5 hours"
+        registration_open: 'INTEGER NOT NULL DEFAULT 0',  // 1 = members can register online
+        capacity: 'INTEGER',    // seat limit for registration (empty = no limit)
+    });
+
+    // members who registered for an event online (one registration per member per event)
+    db.run(`CREATE TABLE IF NOT EXISTS event_registrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id INTEGER NOT NULL,
+        member_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (event_id, member_id),
+        FOREIGN KEY (event_id) REFERENCES events(id),
+        FOREIGN KEY (member_id) REFERENCES members(id)
+    )`, (err) => {
+        if (err) console.error('Error creating event_registrations table:', err.message);
+    });
+
+    // faculty advisors and moderators shown on the About page
+    db.run(`CREATE TABLE IF NOT EXISTS advisors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        designation TEXT,
+        message TEXT,
+        photo_path TEXT,
+        profile_url TEXT,
+        sort_order INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`, (err) => {
+        if (err) console.error('Error creating advisors table:', err.message);
+    });
+
+    // snapshots of past committees: the term name plus a frozen list of who held which position
+    db.run(`CREATE TABLE IF NOT EXISTS committee_archive (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        term TEXT NOT NULL,
+        members_json TEXT NOT NULL,
+        archived_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`, (err) => {
+        if (err) console.error('Error creating committee_archive table:', err.message);
+    });
 });
 
 // Adds any columns from `wanted` that the table doesn't have yet, then calls `done`.

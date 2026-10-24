@@ -19,4 +19,28 @@ async function loadCommittee() {
     }
 }
 
+// e.g. "13th Executive Committee", set in Admin > About & Advisors
+async function loadTerm() {
+    const info = await clubInfo();
+    if (!info.committee_term) return;
+    const label = document.getElementById('term-label');
+    label.textContent = info.committee_term;
+    label.classList.remove('hidden');
+}
+
+async function loadPastCommittees() {
+    try {
+        const terms = await api('/committee-archive');
+        if (!terms.length) return;
+        document.getElementById('past-committees').innerHTML = terms.map(t => `
+            <details class="past-term">
+                <summary>${escapeHtml(t.term)}</summary>
+                <ul>${t.members.map(m => `<li>${escapeHtml(m.name)} <span>— ${escapeHtml(m.position)}</span></li>`).join('')}</ul>
+            </details>`).join('');
+        document.getElementById('past-section').classList.remove('hidden');
+    } catch { /* past committees are optional */ }
+}
+
 loadCommittee();
+loadTerm();
+loadPastCommittees();
