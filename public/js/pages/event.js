@@ -42,8 +42,17 @@ async function loadEvent() {
             detail('Event code', eventCode(event.id)),
         ].join('');
 
+        // the server makes both, so the event's time zone and end time are worked out in one place
+        const id = encodeURIComponent(event.id);
+        const calendar = status.key === 'completed' ? '' : `
+            <div class="calendar-actions">
+                <a class="btn btn-outline btn-small" href="/events/${id}/google-calendar" target="_blank" rel="noopener">📅 Add to Google Calendar</a>
+                <a class="btn btn-outline btn-small" href="/events/${id}/calendar.ics" download>⬇️ Apple / Outlook (.ics)</a>
+            </div>`;
+
         body.innerHTML = `
             <div class="detail-grid">${details}</div>
+            ${calendar}
             ${event.description ? `<div class="card"><p class="text-pre" style="margin:0;">${escapeHtml(event.description)}</p></div>` : ''}`;
 
         gallery.innerHTML = photos.length

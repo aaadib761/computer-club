@@ -620,6 +620,22 @@ body.certificate-page { background: var(--bg-soft); }
 .info-list li { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .info-list li:last-child { border-bottom: 0; }
 
+/* events & gallery: search and filters */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.filter-bar input, .filter-bar select {
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg);
+}
+.filter-bar input { flex: 1 1 240px; min-width: 0; }
+.filter-bar select { flex: 0 0 auto; }
+.filter-bar input:focus, .filter-bar select:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+.subscribe-line { margin-top: 10px !important; }
+.calendar-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+
 /* member portal */
 .btn-small { padding: 6px 14px; font-size: 0.9rem; }
 .portal-tabs { display: flex; gap: 4px; background: var(--bg-soft); border-radius: 999px; padding: 4px; margin-bottom: 20px; }

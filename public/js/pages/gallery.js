@@ -3,12 +3,40 @@ const albumsBox = document.getElementById('albums');
 setupLightbox(albumsBox);
 
 let photos = [];
-let category = '';   // '' = all categories
+
+// the filters live in the address (gallery.html?q=fest&year=2026), so a filtered view can be shared
+const params = new URLSearchParams(location.search);
+let category = params.get('category') || '';   // '' = all categories
+const search = document.getElementById('search');
+const yearFilter = document.getElementById('year-filter');
+search.value = params.get('q') || '';
+
+const photoYear = p => String(p.event_date || '').slice(0, 4);
+
+function saveFiltersInAddress() {
+    const next = new URLSearchParams();
+    if (search.value.trim()) next.set('q', search.value.trim());
+    if (category) next.set('category', category);
+    if (yearFilter.value) next.set('year', yearFilter.value);
+    history.replaceState(null, '', next.toString() ? `?${next}` : location.pathname);
+}
 
 function renderAlbums() {
-    const shown = category ? photos.filter(p => p.category === category) : photos;
+    const q = search.value.trim().toLowerCase();
+    const shown = photos.filter(p => (!category || p.category === category)
+        && (!yearFilter.value || photoYear(p) === yearFilter.value)
+        && (!q || [p.event_title, p.caption].some(v => (v || '').toLowerCase().includes(q))));
+    const filtering = q || yearFilter.value || category;
+    const count = document.getElementById('result-count');
+    const albumCount = new Set(shown.map(p => p.event_id)).size;
+    count.textContent = `${shown.length} photo${shown.length === 1 ? '' : 's'} from ${albumCount} event${albumCount === 1 ? '' : 's'}.`;
+    count.classList.toggle('hidden', !filtering || !shown.length);
+    saveFiltersInAddress();
+
     if (!shown.length) {
-        albumsBox.innerHTML = `<div class="empty">${photos.length ? 'No photos in this category yet.' : 'No photos yet. Check back after our next event!'}</div>`;
+        albumsBox.innerHTML = `<div class="empty">${photos.length
+            ? (q || yearFilter.value ? 'No photos match your search.' : 'No photos in this category yet.')
+            : 'No photos yet. Check back after our next event!'}</div>`;
         return;
     }
 
@@ -51,6 +79,14 @@ function renderChips() {
         </button>`).join('');
 }
 
+// newest year first; hidden when every photo is from the same year
+function renderYears() {
+    const years = [...new Set(photos.map(photoYear).filter(y => /^\d{4}$/.test(y)))].sort().reverse();
+    yearFilter.innerHTML = '<option value="">All years</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+    yearFilter.value = years.includes(params.get('year')) ? params.get('year') : '';
+    yearFilter.classList.toggle('hidden', years.length < 2);
+}
+
 document.getElementById('category-chips').addEventListener('click', (e) => {
     const chip = e.target.closest('[data-category]');
     if (!chip) return;
@@ -58,11 +94,15 @@ document.getElementById('category-chips').addEventListener('click', (e) => {
     renderChips();
     renderAlbums();
 });
+search.addEventListener('input', renderAlbums);
+yearFilter.addEventListener('change', renderAlbums);
 
 async function loadGallery() {
     try {
         photos = await api('/photos');
+        if (category && !photos.some(p => p.category === category)) category = '';
         renderChips();
+        renderYears();
         renderAlbums();
     } catch (err) {
         albumsBox.innerHTML = `<div class="empty">Couldn't load photos. ${escapeHtml(err.message)}</div>`;

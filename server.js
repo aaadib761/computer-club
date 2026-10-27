@@ -1669,6 +1669,154 @@ app.get('/photos', (req, res) => {
     });
 });
 
+// ---------- calendar export ----------
+// "Add to Google Calendar", a downloadable .ics file per event (Apple Calendar, Outlook...),
+// and /calendar.ics, a feed of all club events people can subscribe to.
+
+// Event dates are typed in the club's local time ("2027-03-01T10:00"). Calendars need the real
+// moment, so they're converted using this time zone (set CLUB_TIMEZONE in .env if the club moves).
+const CLUB_TIMEZONE = process.env.CLUB_TIMEZONE || 'Asia/Dhaka';
+const DEFAULT_EVENT_HOURS = 2;
+
+// minutes ahead of UTC in `timeZone` at that moment (Dhaka: +360)
+function zoneOffsetMinutes(date, timeZone) {
+    const name = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
+        .formatToParts(date).find(p => p.type === 'timeZoneName').value;  // "GMT+06:00", or "GMT" for UTC
+    const match = /GMT([+-])(\d{2}):(\d{2})/.exec(name);
+    return match ? (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3])) : 0;
+}
+
+// The Duration field is free text ("1.5 hours", "45 min", "2 days"); anything unreadable means 2 hours.
+function durationMinutes(text) {
+    const value = String(text || '').toLowerCase();
+    const number = parseFloat(value.match(/\d+(\.\d+)?/)?.[0]);
+    if (!number) return DEFAULT_EVENT_HOURS * 60;
+    if (/day/.test(value)) return number * 24 * 60;
+    if (/min/.test(value) && !/h/.test(value)) return number;
+    return number * 60;
+}
+
+// -> { allDay: true, start: '20270301', end: '20270302' } for date-only events,
+//    { allDay: false, start: Date, end: Date } (real moments) for events with a time; null if unreadable
+function eventTimes(event) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(String(event.date || ''));
+    if (!match) return null;
+    const [, y, mo, d, h, mi] = match.map(Number);
+    if (match[4] === undefined) {
+        const next = new Date(Date.UTC(y, mo - 1, d + 1));
+        const day = date => date.toISOString().slice(0, 10).replace(/-/g, '');
+        return { allDay: true, start: day(new Date(Date.UTC(y, mo - 1, d))), end: day(next) };
+    }
+    const asIfUtc = Date.UTC(y, mo - 1, d, h, mi);
+    const start = new Date(asIfUtc - zoneOffsetMinutes(new Date(asIfUtc), CLUB_TIMEZONE) * 60000);
+    return { allDay: false, start, end: new Date(start.getTime() + durationMinutes(event.duration) * 60000) };
+}
+
+// 2027-03-01T04:00:00.000Z -> 20270301T040000Z (the format both .ics files and Google use)
+function calendarStamp(date) {
+    return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+}
+
+function siteBase(req) {
+    return (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+}
+
+function eventCalendarText(event, req) {
+    return [
+        event.description,
+        event.speaker ? `Resource person: ${event.speaker}${event.speaker_title ? `, ${event.speaker_title}` : ''}` : '',
+        `Details: ${siteBase(req)}/event.html?id=${event.id}`,
+    ].filter(Boolean).join('\n\n');
+}
+
+// .ics text needs \ ; , and line breaks escaped, and lines longer than 75 bytes folded
+function icsText(value) {
+    return String(value || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+}
+function icsFold(line) {
+    const parts = [];
+    let current = '';
+    for (const char of line) {
+        if (Buffer.byteLength(current + char) > (parts.length ? 74 : 75)) {
+            parts.push(current);
+            current = '';
+        }
+        current += char;
+    }
+    parts.push(current);
+    return parts.join('\r\n ');
+}
+
+function icsEvent(event, req) {
+    const times = eventTimes(event);
+    if (!times) return [];
+    return [
+        'BEGIN:VEVENT',
+        `UID:event-${event.id}@ndubcc`,
+        `DTSTAMP:${calendarStamp(new Date())}`,
+        times.allDay ? `DTSTART;VALUE=DATE:${times.start}` : `DTSTART:${calendarStamp(times.start)}`,
+        times.allDay ? `DTEND;VALUE=DATE:${times.end}` : `DTEND:${calendarStamp(times.end)}`,
+        `SUMMARY:${icsText(event.title)}`,
+        event.venue ? `LOCATION:${icsText(event.venue)}` : '',
+        `DESCRIPTION:${icsText(eventCalendarText(event, req))}`,
+        `URL:${siteBase(req)}/event.html?id=${event.id}`,
+        event.category ? `CATEGORIES:${icsText(event.category)}` : '',
+        'END:VEVENT',
+    ].filter(Boolean);
+}
+
+function sendCalendar(res, events, req, { filename, name }) {
+    const lines = [
+        'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//NDUB Computer Club//Events//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+        ...(name ? [`X-WR-CALNAME:${icsText(name)}`, 'X-PUBLISHED-TTL:PT6H'] : []),
+        ...events.flatMap(e => icsEvent(e, req)),
+        'END:VCALENDAR',
+    ];
+    res.type('text/calendar; charset=utf-8');
+    if (filename) res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(lines.map(icsFold).join('\r\n') + '\r\n');
+}
+
+app.get('/events/:id/calendar.ics', (req, res) => {
+    db.get(`SELECT * FROM events WHERE id = ?`, [req.params.id], (err, event) => {
+        if (err) {
+            console.error('Error fetching event:', err.message);
+            return res.status(500).json({ error: 'Failed to make the calendar file' });
+        }
+        if (!event || !eventTimes(event)) return res.status(404).json({ error: 'Event not found' });
+        // a safe file name made from the title: "Python Workshop!" -> python-workshop.ics
+        const slug = event.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || `event-${event.id}`;
+        sendCalendar(res, [event], req, { filename: `${slug}.ics` });
+    });
+});
+
+// Opens Google Calendar with the event filled in, ready to save.
+app.get('/events/:id/google-calendar', (req, res) => {
+    db.get(`SELECT * FROM events WHERE id = ?`, [req.params.id], (err, event) => {
+        if (err) {
+            console.error('Error fetching event:', err.message);
+            return res.status(500).json({ error: 'Failed to open Google Calendar' });
+        }
+        const times = event && eventTimes(event);
+        if (!times) return res.status(404).json({ error: 'Event not found' });
+        const dates = times.allDay ? `${times.start}/${times.end}` : `${calendarStamp(times.start)}/${calendarStamp(times.end)}`;
+        const params = new URLSearchParams({ action: 'TEMPLATE', text: event.title, dates, details: eventCalendarText(event, req) });
+        if (event.venue) params.set('location', event.venue);
+        res.redirect(`https://calendar.google.com/calendar/render?${params}`);
+    });
+});
+
+// The subscribable feed: upcoming events plus the last 60 days, so calendars keep recent ones too.
+app.get('/calendar.ics', (req, res) => {
+    db.all(`SELECT * FROM events WHERE date >= date('now', '-60 days') ORDER BY date`, [], (err, events) => {
+        if (err) {
+            console.error('Error making calendar feed:', err.message);
+            return res.status(500).json({ error: 'Failed to make the calendar' });
+        }
+        sendCalendar(res, events, req, { name: 'NDUB Computer Club events' });
+    });
+});
+
 // club info (Settings page) — public to read, admins to edit
 
 const SETTING_KEYS = ['contact_email', 'contact_phone', 'address', 'facebook', 'instagram', 'linkedin', 'github', 'youtube',

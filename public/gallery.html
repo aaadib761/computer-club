@@ -23,7 +23,12 @@
 
         <section class="section">
             <div class="container">
+                <div class="filter-bar">
+                    <input type="search" id="search" placeholder="Search by event or caption…" aria-label="Search photos">
+                    <select id="year-filter" aria-label="Filter by year"><option value="">All years</option></select>
+                </div>
                 <div id="category-chips" class="chips" role="group" aria-label="Filter by category"></div>
+                <p id="result-count" class="meta hidden" role="status"></p>
                 <div id="albums">
                     <div class="loading">Loading photos…</div>
                 </div>

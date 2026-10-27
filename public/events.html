@@ -17,12 +17,19 @@
             <div class="container">
                 <h1>Events</h1>
                 <p>Workshops, contests, seminars and meetups.</p>
+                <p class="subscribe-line">📅 <a id="subscribe-link" href="/calendar.ics">Subscribe to the club calendar</a>
+                    <span class="meta">so new events appear in your calendar app automatically.</span></p>
             </div>
         </section>
 
         <section class="section">
             <div class="container">
+                <div class="filter-bar">
+                    <input type="search" id="search" placeholder="Search events, speakers, venues…" aria-label="Search events">
+                    <select id="year-filter" aria-label="Filter by year"><option value="">All years</option></select>
+                </div>
                 <div id="category-chips" class="chips" role="group" aria-label="Filter by category"></div>
+                <p id="result-count" class="meta hidden" role="status"></p>
                 <h2>Upcoming</h2>
                 <div id="upcoming" class="grid grid-2">
                     <div class="loading">Loading events…</div>
