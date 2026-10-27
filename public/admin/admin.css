@@ -218,6 +218,16 @@ dialog.modal h2 { font-size: 1.25rem; margin-bottom: 16px; }
     background: var(--bg);
 }
 .field .hint { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+/* the role dropdown next to each admin in Settings */
+.role-select {
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: inherit;
+    font-size: 0.85rem;
+    background: var(--bg);
+    color: var(--ink);
+}
 .field input:disabled { background: var(--bg-soft); color: var(--muted); cursor: not-allowed; }
 
 /* ---------- confirm box (replaces the browser's confirm()) ---------- */

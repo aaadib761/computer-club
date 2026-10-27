@@ -151,6 +151,7 @@ db.serialize(() => {
         token_version: 'INTEGER NOT NULL DEFAULT 0',  // bumping it logs the admin out everywhere
         last_login_at: 'DATETIME',
         password_changed_at: 'DATETIME',
+        role: "TEXT NOT NULL DEFAULT 'owner'",  // owner, editor or checkin; admins from before roles existed are owners
     });
     addMissingColumns('members', {
         student_id: 'TEXT',

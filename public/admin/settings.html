@@ -17,7 +17,7 @@
         <p class="page-sub">Club info, your account, appearance, data and security.</p>
 
         <!-- club info -->
-        <section class="settings-section">
+        <section class="settings-section" data-roles="owner">
             <h2>🏫 Club info</h2>
             <p class="meta">Shown on the website's Contact page and footer. Leave a field empty to hide it.</p>
             <form id="club-form" class="card" novalidate>
@@ -69,7 +69,7 @@
         </section>
 
         <!-- membership card -->
-        <section class="settings-section">
+        <section class="settings-section" data-roles="owner">
             <h2>🪪 Membership card</h2>
             <p class="meta">What's printed on the back of every card, and until when cards are valid.</p>
             <form id="card-form" class="card" novalidate>
@@ -143,7 +143,7 @@
         </section>
 
         <!-- export -->
-        <section class="settings-section">
+        <section class="settings-section" data-roles="owner">
             <h2>📥 Export data</h2>
             <p class="meta">Downloads a spreadsheet (CSV) that opens in Excel or Google Sheets. Handy for backups and reports.</p>
             <div class="export-grid">
@@ -155,7 +155,7 @@
         </section>
 
         <!-- email -->
-        <section class="settings-section">
+        <section class="settings-section" data-roles="owner">
             <h2>✉️ Email</h2>
             <p class="meta">The website emails members automatically: a welcome when their join request is approved, their club ID, event registration confirmations, certificates after they attend, and password reset links.</p>
             <div class="card">
@@ -168,7 +168,7 @@
         </section>
 
         <!-- backups -->
-        <section class="settings-section">
+        <section class="settings-section" data-roles="owner">
             <div class="section-title">
                 <h2 style="margin: 0;">💾 Backups</h2>
                 <button class="btn btn-sm" id="backup-now-btn">Back up now</button>
@@ -188,12 +188,19 @@
                 <button class="btn btn-danger" id="logout-all-btn" style="flex: none;">Log out everywhere</button>
             </div>
 
-            <div class="section-title">
-                <h3 style="margin: 0;">Admins</h3>
-                <button class="btn btn-sm" id="add-admin-btn">+ Add admin</button>
+            <div data-roles="owner">
+                <div class="section-title">
+                    <h3 style="margin: 0;">Admins</h3>
+                    <button class="btn btn-sm" id="add-admin-btn">+ Add admin</button>
+                </div>
+                <p class="meta">
+                    <b>Owner:</b> everything, including admins, club settings, exports and backups.
+                    <b>Editor:</b> members, events, attendance, photos, posts, join requests and messages.
+                    <b>Check-in:</b> only scanning members in at events (good for volunteers).
+                    You can't remove yourself or change your own role.
+                </p>
+                <div id="admins" class="list"><div class="loading">Loading…</div></div>
             </div>
-            <p class="meta">Every admin can manage everything. You can remove other admins, but not yourself.</p>
-            <div id="admins" class="list"><div class="loading">Loading…</div></div>
         </section>
     </main>
 
@@ -209,6 +216,14 @@
                 <label for="a-password">Password <small>(at least 8 characters)</small></label>
                 <input id="a-password" name="password" type="password" required minlength="8" autocomplete="new-password">
                 <p class="hint">Share it with them privately and ask them to change it after logging in.</p>
+            </div>
+            <div class="field">
+                <label for="a-role">Role</label>
+                <select id="a-role" name="role">
+                    <option value="editor">Editor</option>
+                    <option value="checkin">Check-in only</option>
+                    <option value="owner">Owner</option>
+                </select>
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn btn-ghost" data-close>Cancel</button>

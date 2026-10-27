@@ -218,6 +218,12 @@ async function loadAdmins() {
     try {
         const admins = await adminApi('/admins');
         const when = value => (value ? formatDate(value, { isUtc: true }) : 'never');
+        // your own role is shown but can't be changed here (another owner has to)
+        const roleControl = a => a.id === me.id
+            ? `<span class="badge badge-role">${ROLE_LABELS[a.role] || escapeHtml(a.role)}</span>`
+            : `<select class="role-select" data-role-for="${escapeHtml(a.username)}" aria-label="Role for ${escapeHtml(a.username)}">
+                ${Object.entries(ROLE_LABELS).map(([value, label]) => `<option value="${value}" ${a.role === value ? 'selected' : ''}>${label}</option>`).join('')}
+               </select>`;
         adminsList.innerHTML = admins.map(a => `
             <div class="row">
                 <div class="avatar" aria-hidden="true">${escapeHtml(initials(a.username))}</div>
@@ -229,7 +235,10 @@ async function loadAdmins() {
                         · Password changed: ${when(a.password_changed_at)}
                     </p>
                 </div>
-                ${a.id === me.id ? '' : `<button class="btn btn-sm btn-danger" data-username="${escapeHtml(a.username)}">Remove</button>`}
+                <div class="btn-group">
+                    ${roleControl(a)}
+                    ${a.id === me.id ? '' : `<button class="btn btn-sm btn-danger" data-username="${escapeHtml(a.username)}">Remove</button>`}
+                </div>
             </div>`).join('');
     } catch (err) {
         adminsList.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
@@ -248,6 +257,28 @@ adminsList.addEventListener('click', async (e) => {
     } catch (err) {
         toast(err.message, 'error');
     }
+});
+
+adminsList.addEventListener('change', async (e) => {
+    const select = e.target.closest('select[data-role-for]');
+    if (!select) return;
+    const username = select.dataset.roleFor;
+    const label = ROLE_LABELS[select.value];
+    if (!(await confirmBox({
+        title: `Make ${username} ${label === 'Owner' ? 'an' : 'a'} ${label}?`,
+        message: 'They will be logged out and see the new menus the next time they log in.',
+        confirmText: 'Change role',
+        danger: false,
+    }))) {
+        return loadAdmins();  // puts the dropdown back to their current role
+    }
+    try {
+        await adminApi(`/admin/${encodeURIComponent(username)}/role`, { method: 'PUT', body: { role: select.value } });
+        toast(`${username} is now ${label === 'Owner' ? 'an' : 'a'} ${label}`);
+    } catch (err) {
+        toast(err.message, 'error');
+    }
+    loadAdmins();
 });
 
 document.getElementById('add-admin-btn').addEventListener('click', () => {
@@ -269,7 +300,8 @@ adminForm.addEventListener('submit', (e) => {
     });
 });
 
-if (me) {
+// everything except your own account and appearance is for owners only
+if (me && me.role === 'owner') {
     loadClubInfo();
     loadAdmins();
     loadBackups();

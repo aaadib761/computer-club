@@ -164,37 +164,55 @@ function checkRank(value) {
     return Number.isInteger(rank) && rank >= 1 && rank <= 999 ? null : 'position_rank must be a whole number from 1 to 999.';
 }
 
-function verifyAdmin(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    if (!authHeader) return res.status(401).json({ error: 'Authorization header missing' });
+// Admin roles:
+//   owner   - everything, including other admins, club settings, exports, backups and email
+//   editor  - members, events, attendance, photos, announcements, join requests and messages
+//   checkin - only door check-in at events (for volunteers), plus their own password
+const ADMIN_ROLES = ['owner', 'editor', 'checkin'];
 
-    const token = authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Token missing' });
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ error: 'Invalid token' });
-        // member portal tokens are signed with the same secret, so never let one through as an admin
-        if (user.kind) return res.status(403).json({ error: 'Invalid token' });
+// Makes a middleware that lets in admins whose role is one of `roles`.
+// The role is read from the database on every request, so a change takes effect right away.
+function adminAuth(roles) {
+    return (req, res, next) => {
+        const authHeader = req.headers['authorization'];
+        if (!authHeader) return res.status(401).json({ error: 'Authorization header missing' });
 
-        // the token can outlive the account, so make sure the admin still exists
-        db.get(`SELECT id, username, token_version FROM admins WHERE id = ?`, [user.id], (err, admin) => {
-            if (err) {
-                console.error('Error verifying admin:', err.message);
-                return res.status(500).json({ error: 'Failed to verify admin' });
-            }
-            if (!admin) return res.status(401).json({ error: 'Admin account no longer exists' });
-            // "log out everywhere" and password changes bump token_version, which retires older tokens
-            if ((user.tv || 0) !== admin.token_version) {
-                return res.status(401).json({ error: 'Session ended. Please log in again.' });
-            }
+        const token = authHeader.split(' ')[1];
+        if (!token) return res.status(401).json({ error: 'Token missing' });
+        jwt.verify(token, JWT_SECRET, (err, user) => {
+            if (err) return res.status(403).json({ error: 'Invalid token' });
+            // member portal tokens are signed with the same secret, so never let one through as an admin
+            if (user.kind) return res.status(403).json({ error: 'Invalid token' });
 
-            req.user = admin;
-            next();
+            // the token can outlive the account, so make sure the admin still exists
+            db.get(`SELECT id, username, token_version, role FROM admins WHERE id = ?`, [user.id], (err, admin) => {
+                if (err) {
+                    console.error('Error verifying admin:', err.message);
+                    return res.status(500).json({ error: 'Failed to verify admin' });
+                }
+                if (!admin) return res.status(401).json({ error: 'Admin account no longer exists' });
+                // "log out everywhere", password and role changes bump token_version, which retires older tokens
+                if ((user.tv || 0) !== admin.token_version) {
+                    return res.status(401).json({ error: 'Session ended. Please log in again.' });
+                }
+                if (!roles.includes(admin.role)) {
+                    return res.status(403).json({ error: 'Your admin role doesn\'t allow this. Ask an owner if you need it.' });
+                }
+
+                req.user = admin;
+                next();
+            });
         });
-    })
+    };
 }
 
+const verifyAdmin = adminAuth(['owner', 'editor']);   // most admin routes
+const verifyOwner = adminAuth(['owner']);
+const verifyAnyAdmin = adminAuth(ADMIN_ROLES);         // check-in and your own account
+
+// the role in the token only decides which menus the admin panel shows; the server checks the database
 function signAdminToken(admin) {
-    return jwt.sign({ id: admin.id, username: admin.username, tv: admin.token_version || 0 }, JWT_SECRET, { expiresIn: '1h' });
+    return jwt.sign({ id: admin.id, username: admin.username, role: admin.role, tv: admin.token_version || 0 }, JWT_SECRET, { expiresIn: '1h' });
 }
 
 // Member portal logins work like admin ones, but the token says kind: 'member' and only opens /portal routes.
@@ -919,23 +937,49 @@ app.delete('/attendance/:id', verifyAdmin, (req, res) => {
 // admin auth
 
 // the first admin is created with create-admin.js, not through this route
-app.post('/admin/register', verifyAdmin, async (req, res) => {
+app.post('/admin/register', verifyOwner, async (req, res) => {
     const { username, password } = req.body;
+    // new admins are editors unless the owner picks another role
+    const role = req.body.role === undefined ? 'editor' : req.body.role;
     if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) return res.status(400).json({ error: USERNAME_ERROR });
+    if (!ADMIN_ROLES.includes(role)) return res.status(400).json({ error: `role must be one of: ${ADMIN_ROLES.join(', ')}.` });
     const passwordError = checkPassword(password);
     if (passwordError) return res.status(400).json({ error: passwordError });
     const hashedPassword = await bcrypt.hash(password, 10);
-    const query = `INSERT INTO admins (username, password) VALUES (?, ?)`;
-    db.run(query, [username, hashedPassword], function (err) {
+    const query = `INSERT INTO admins (username, password, role) VALUES (?, ?, ?)`;
+    db.run(query, [username, hashedPassword, role], function (err) {
         if (err && err.message.includes('UNIQUE')) {
             res.status(409).json({ error: 'That username is already taken.' });
         } else if (err) {
             console.error('Error registering admin:', err.message);
             res.status(500).json({ error: 'Failed to register admin' });
         } else {
-            res.status(201).json({ id: this.lastID, username });
+            res.status(201).json({ id: this.lastID, username, role });
         }
     });
+});
+
+// An owner changes another admin's role. Owners can't change their own, so there is always at least one owner.
+app.put('/admin/:username/role', verifyOwner, (req, res) => {
+    const { role } = req.body;
+    if (!ADMIN_ROLES.includes(role)) return res.status(400).json({ error: `role must be one of: ${ADMIN_ROLES.join(', ')}.` });
+    if (req.params.username === req.user.username) {
+        return res.status(400).json({ error: 'You cannot change your own role. Ask another owner.' });
+    }
+    // bumping token_version logs them out, so they log back in with the new role's menus
+    db.run(`UPDATE admins SET role = ?, token_version = token_version + 1 WHERE username = ? AND role != ?`,
+        [role, req.params.username, role], function (err) {
+            if (err) {
+                console.error('Error changing admin role:', err.message);
+                return res.status(500).json({ error: 'Failed to change role' });
+            }
+            if (this.changes > 0) return res.status(200).json({ username: req.params.username, role });
+            // nothing changed: either they don't exist or already have that role
+            db.get(`SELECT 1 FROM admins WHERE username = ?`, [req.params.username], (err, exists) => {
+                if (err || !exists) return res.status(404).json({ error: 'Admin not found' });
+                res.status(200).json({ username: req.params.username, role });
+            });
+        });
 });
 
 app.post('/admin/login', loginLimiter, (req, res) => {
@@ -965,7 +1009,7 @@ app.post('/admin/login', loginLimiter, (req, res) => {
     });
 });
 
-app.put('/admin/password', verifyAdmin, async (req, res) => {
+app.put('/admin/password', verifyAnyAdmin, async (req, res) => {
     const { oldPassword, newPassword } = req.body;
     if (typeof oldPassword !== 'string' || !oldPassword) return res.status(400).json({ error: 'oldPassword and newPassword required' });
     const passwordError = checkPassword(newPassword, 'newPassword');
@@ -998,7 +1042,7 @@ app.put('/admin/password', verifyAdmin, async (req, res) => {
     });
 });
  
-app.put('/admin/username', verifyAdmin, async (req, res) => {
+app.put('/admin/username', verifyAnyAdmin, async (req, res) => {
     const { newUsername, currentPassword } = req.body;
     if (!newUsername || typeof currentPassword !== 'string' || !currentPassword) return res.status(400).json({ error: 'newUsername and currentPassword required' });
     if (typeof newUsername !== 'string' || !USERNAME_PATTERN.test(newUsername)) return res.status(400).json({ error: USERNAME_ERROR });
@@ -1028,7 +1072,7 @@ app.put('/admin/username', verifyAdmin, async (req, res) => {
     });
 });
 
-app.post('/admin/logout-all', verifyAdmin, (req, res) => {
+app.post('/admin/logout-all', verifyAnyAdmin, (req, res) => {
     db.run(`UPDATE admins SET token_version = token_version + 1 WHERE id = ?`, [req.user.id], (err) => {
         if (err) {
             console.error('Error logging out everywhere:', err.message);
@@ -1039,8 +1083,8 @@ app.post('/admin/logout-all', verifyAdmin, (req, res) => {
     });
 });
 
-app.get('/admins', verifyAdmin, (req, res) => {
-    const query = `SELECT id, username, created_at, last_login_at, password_changed_at FROM admins ORDER BY created_at ASC`;
+app.get('/admins', verifyOwner, (req, res) => {
+    const query = `SELECT id, username, role, created_at, last_login_at, password_changed_at FROM admins ORDER BY created_at ASC`;
     db.all(query, [], (err, rows) => {
         if (err) {
             console.error('Error fetching admins:', err.message);
@@ -1051,7 +1095,7 @@ app.get('/admins', verifyAdmin, (req, res) => {
     });
 });
 
-app.delete('/admin/:username', verifyAdmin, (req, res) => {
+app.delete('/admin/:username', verifyOwner, (req, res) => {
     // blocking self-delete also means the last admin can never be removed
     if (req.params.username === req.user.username) {
         return res.status(400).json({ error: 'You cannot delete your own account.' });
@@ -1473,6 +1517,8 @@ app.get('/photos', (req, res) => {
 const SETTING_KEYS = ['contact_email', 'contact_phone', 'address', 'facebook', 'instagram', 'linkedin', 'github', 'youtube',
     'about_text', 'objectives', 'founded_year', 'committee_term', 'membership_fee', 'card_back_text', 'card_valid_until'];
 const LINK_KEYS = ['facebook', 'instagram', 'linkedin', 'github', 'youtube'];
+// the About page texts are content that editors manage; contact details, fee and card settings are for owners
+const EDITOR_SETTING_KEYS = ['about_text', 'objectives', 'founded_year', 'committee_term'];
 // most settings are short; the About page texts can be longer
 const SETTING_MAX = { about_text: 3000, objectives: 2000, committee_term: 80, card_back_text: 600 };
 
@@ -1492,6 +1538,9 @@ app.put('/settings', verifyAdmin, (req, res) => {
     const updates = {};
     for (const key of SETTING_KEYS) {
         if (req.body[key] === undefined) continue;
+        if (req.user.role !== 'owner' && !EDITOR_SETTING_KEYS.includes(key)) {
+            return res.status(403).json({ error: 'Only owners can change club info and card settings.' });
+        }
         const value = String(req.body[key] ?? '').trim();
         if (value.length > (SETTING_MAX[key] || 300)) return res.status(400).json({ error: `${key} is too long.` });
         if (value && key === 'founded_year' && !/^(19|20)\d{2}$/.test(value)) {
@@ -1556,7 +1605,7 @@ const memberFormLimiter = rateLimit({
 });
 
 // QR check-in at the door: the scanned card gives a club ID, which marks the member present.
-app.post('/events/:id/checkin', verifyAdmin, (req, res) => {
+app.post('/events/:id/checkin', verifyAnyAdmin, (req, res) => {
     const clubId = cleanId(req.body.club_id);
     if (!clubId) return res.status(400).json({ error: 'No club ID found.' });
     db.get(`SELECT id FROM events WHERE id = ?`, [req.params.id], (err, event) => {
@@ -1664,7 +1713,7 @@ app.post('/events/:id/unregister', memberFormLimiter, (req, res) => {
 });
 
 // Admin: who registered, and whether they've checked in yet.
-app.get('/events/:id/registrations', verifyAdmin, (req, res) => {
+app.get('/events/:id/registrations', verifyAnyAdmin, (req, res) => {
     const query = `SELECT m.id AS member_id, m.name, m.club_id, m.student_id, m.department, m.batch, m.photo_path, r.created_at,
         EXISTS (SELECT 1 FROM attendance a WHERE a.event_id = r.event_id AND a.member_id = m.id
             AND a.status IN ('present', 'late')) AS checked_in
@@ -2029,7 +2078,7 @@ function csvCell(value) {
     return `"${text.replace(/"/g, '""')}"`;
 }
 
-app.get('/export/:type', verifyAdmin, (req, res) => {
+app.get('/export/:type', verifyOwner, (req, res) => {
     const query = EXPORTS[req.params.type];
     if (!query) return res.status(404).json({ error: 'Unknown export' });
 
@@ -2050,11 +2099,11 @@ app.get('/export/:type', verifyAdmin, (req, res) => {
 
 // email: Settings shows whether Gmail is set up and can send a test message
 
-app.get('/email/status', verifyAdmin, (req, res) => {
+app.get('/email/status', verifyOwner, (req, res) => {
     res.status(200).json({ configured: mailer.isConfigured(), from: mailer.isConfigured() ? process.env.GMAIL_USER : null });
 });
 
-app.post('/email/test', verifyAdmin, async (req, res) => {
+app.post('/email/test', verifyOwner, async (req, res) => {
     const invalid = checkFields(req.body, { to: { required: true, max: 150, email: true } });
     if (invalid) return res.status(400).json({ error: invalid });
     try {
@@ -2111,18 +2160,18 @@ function backupIfDue() {
     if (!newest || Date.now() - new Date(newest.created_at).getTime() >= DAY_MS) makeBackup();
 }
 
-app.get('/backups', verifyAdmin, (req, res) => {
+app.get('/backups', verifyOwner, (req, res) => {
     res.status(200).json(listBackups());
 });
 
-app.post('/backups', verifyAdmin, (req, res) => {
+app.post('/backups', verifyOwner, (req, res) => {
     makeBackup((err, name) => {
         if (err) return res.status(500).json({ error: 'Failed to back up the database' });
         res.status(201).json(listBackups().find(b => b.name === name));
     });
 });
 
-app.get('/backups/:name', verifyAdmin, (req, res) => {
+app.get('/backups/:name', verifyOwner, (req, res) => {
     const name = req.params.name;
     // only plain backup file names, so nobody can ask for ../.env or other files
     if (!BACKUP_NAME_PATTERN.test(name) || !fs.existsSync(path.join(BACKUP_DIR, name))) {
@@ -2298,7 +2347,14 @@ app.use((err, req, res, next) => {
         res.status(500).json({ error: 'Unexpected error occurred' });
     }
 });
-app.listen(PORT, () => {
+app.listen(PORT, (err) => {
+    // Express 5 reports problems like "port already in use" here instead of crashing
+    if (err) {
+        console.error(err.code === 'EADDRINUSE'
+            ? `Port ${PORT} is already in use. Is the server already running in another window?`
+            : `Could not start the server: ${err.message}`);
+        process.exit(1);
+    }
     console.log(`Server is running on port ${PORT}`);
     // give the database a moment to finish setting up its tables first
     setTimeout(backupIfDue, 5000);

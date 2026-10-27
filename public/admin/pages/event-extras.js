@@ -27,7 +27,7 @@ async function loadRegistrations() {
                         <p class="meta">${[r.club_id ? `Club ${escapeHtml(r.club_id)}` : '', [r.department, r.batch].filter(Boolean).map(escapeHtml).join('-'),
                             `registered ${formatDate(r.created_at, { isUtc: true })}`].filter(Boolean).join(' · ')}</p>
                     </div>
-                    <button class="btn btn-sm btn-danger" data-remove-registration="${r.member_id}" data-name="${escapeHtml(r.name)}">Remove</button>
+                    ${hasRole('checkin') ? '' : `<button class="btn btn-sm btn-danger" data-remove-registration="${r.member_id}" data-name="${escapeHtml(r.name)}">Remove</button>`}
                 </div>`).join('')
             : '<div class="empty">Nobody has registered yet. Share the event link so members can sign up.</div>';
     } catch (err) {
@@ -52,6 +52,7 @@ document.getElementById('registrations').addEventListener('click', async (e) => 
 async function loadCertificates() {
     const section = document.getElementById('certificates-section');
     const list = document.getElementById('certificates');
+    if (hasRole('checkin')) return;  // certificates are for editors and owners
     try {
         const event = await api(`/events/${encodeURIComponent(eventId)}`);
         if (isUpcoming(event.date) && eventStatus(event).key !== 'today') return section.classList.add('hidden');

@@ -160,7 +160,8 @@ grid.addEventListener('click', async (e) => {
 });
 
 loadEvent().then(found => {
-    if (!found) return;
+    // check-in volunteers only get the door check-in and the registrations list
+    if (!found || hasRole('checkin')) return;
     loadAttendance();
     loadPhotos();
 });

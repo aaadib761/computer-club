@@ -52,10 +52,11 @@ function render() {
                 ].filter(Boolean).join(' · ')}</p>
                 ${e.description ? `<p class="row-text">${escapeHtml(truncate(e.description, 160))}</p>` : ''}
             </div>
-            <div class="btn-group">
-                <a class="btn btn-sm" href="event.html?id=${encodeURIComponent(e.id)}">Attendance &amp; photos</a>
+            <div class="btn-group">${hasRole('checkin')
+                ? `<a class="btn btn-sm" href="event.html?id=${encodeURIComponent(e.id)}">Check-in</a>`
+                : `<a class="btn btn-sm" href="event.html?id=${encodeURIComponent(e.id)}">Attendance &amp; photos</a>
                 <button class="btn btn-sm btn-ghost" data-action="edit" data-id="${e.id}">Edit</button>
-                <button class="btn btn-sm btn-danger" data-action="delete" data-id="${e.id}">Delete</button>
+                <button class="btn btn-sm btn-danger" data-action="delete" data-id="${e.id}">Delete</button>`}
             </div>
         </div>`).join('');
 }

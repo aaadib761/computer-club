@@ -84,7 +84,7 @@ async function checkIn(clubId) {
                 <span>${already ? 'ℹ️ Already checked in' : '✅ Checked in'} · ${escapeHtml(member.club_id)}</span>
             </div>`);
         if (!already) {
-            loadAttendance();
+            if (!hasRole('checkin')) loadAttendance();  // the attendance list is only shown to editors and owners
             refreshEventExtras();
         }
     } catch (err) {

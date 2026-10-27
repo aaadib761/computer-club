@@ -26,7 +26,7 @@ function storageRemove(key) {
     try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
-// The token's middle part holds { id, username, exp } (it's readable, just not forgeable).
+// The token's middle part holds { id, username, role, exp } (it's readable, just not forgeable).
 function tokenPayload(token) {
     try {
         const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
@@ -40,7 +40,16 @@ function currentAdmin() {
     const token = storageGet(TOKEN_KEY);
     const payload = token && tokenPayload(token);
     if (!payload || payload.exp * 1000 < Date.now()) return null;
-    return { id: payload.id, username: storageGet(NAME_KEY) || payload.username, token };
+    // tokens from before roles existed have none; every admin back then was an owner
+    return { id: payload.id, username: storageGet(NAME_KEY) || payload.username, role: payload.role || 'owner', token };
+}
+
+// Which parts of the panel to show. The server checks the role on every request too;
+// this only hides what the admin couldn't use anyway.
+const ROLE_LABELS = { owner: 'Owner', editor: 'Editor', checkin: 'Check-in' };
+function hasRole(...roles) {
+    const admin = currentAdmin();
+    return !!admin && roles.includes(admin.role);
 }
 
 let loggingOut = false;
@@ -92,26 +101,34 @@ async function adminApi(path, { method = 'GET', body } = {}) {
 
 // ---------- layout ----------
 
+// check-in volunteers only get Events (for the door check-in) and Settings (for their own password)
 const ADMIN_PAGES = [
     { href: 'index.html', label: 'Dashboard', icon: '🏠' },
     { href: 'members.html', label: 'Members', icon: '👥' },
-    { href: 'events.html', label: 'Events', icon: '📅' },
+    { href: 'events.html', label: 'Events', icon: '📅', checkin: true },
     { href: 'announcements.html', label: 'Announcements', icon: '📢' },
     { href: 'about.html', label: 'About & Advisors', icon: '🏫' },
     { href: 'requests.html', label: 'Join Requests', icon: '✋', count: 'requests' },
     { href: 'messages.html', label: 'Messages', icon: '✉️', count: 'messages' },
-    { href: 'settings.html', label: 'Settings', icon: '⚙️' },
+    { href: 'settings.html', label: 'Settings', icon: '⚙️', checkin: true },
 ];
 
 function renderAdminLayout(activeHref) {
     const admin = requireLogin();
     if (!admin) return null;
 
+    const pages = ADMIN_PAGES.filter(p => admin.role !== 'checkin' || p.checkin);
+    // a page this role can't use (e.g. after logging in, which opens the Dashboard): go to the first one it can
+    if (!pages.some(p => p.href === activeHref)) {
+        location.replace(pages[0].href);
+        return null;
+    }
+
     const main = document.querySelector('.admin-main');
     const shell = document.createElement('div');
     shell.className = 'admin-shell';
 
-    const links = ADMIN_PAGES.map(p => `
+    const links = pages.map(p => `
         <a href="${p.href}" class="${p.href === activeHref ? 'active' : ''}">
             <span class="nav-icon">${p.icon}</span>${p.label}
             ${p.count ? `<span class="nav-count hidden" data-count="${p.count}"></span>` : ''}
@@ -131,7 +148,7 @@ function renderAdminLayout(activeHref) {
                 <hr>
                 <a href="../index.html" target="_blank" rel="noopener"><span class="nav-icon">🌐</span>View website</a>
                 <button type="button" id="logout-btn"><span class="nav-icon">🚪</span>Log out</button>
-                <div class="admin-user">Logged in as <b>${escapeHtml(admin.username)}</b></div>
+                <div class="admin-user">Logged in as <b>${escapeHtml(admin.username)}</b> · ${ROLE_LABELS[admin.role] || escapeHtml(admin.role)}</div>
             </nav>
         </aside>`;
     main.replaceWith(shell);
@@ -145,7 +162,12 @@ function renderAdminLayout(activeHref) {
     });
     shell.querySelector('#logout-btn').addEventListener('click', () => logout());
 
-    refreshNavCounts();
+    // anything marked data-roles="owner editor" is only shown to those roles
+    document.querySelectorAll('[data-roles]').forEach(el => {
+        el.classList.toggle('hidden', !el.dataset.roles.split(' ').includes(admin.role));
+    });
+
+    if (admin.role !== 'checkin') refreshNavCounts();
     return admin;
 }
 
