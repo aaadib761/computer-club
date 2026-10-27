@@ -160,6 +160,9 @@ db.serialize(() => {
         fee_paid: 'INTEGER NOT NULL DEFAULT 0',  // one-time membership fee: 1 = paid
         fee_paid_at: 'DATETIME',
         fee_note: 'TEXT',                        // e.g. receipt number or who collected it
+        portal_password: 'TEXT',                 // bcrypt hash; empty until the member sets up the member portal
+        portal_token_version: 'INTEGER NOT NULL DEFAULT 0',  // bumping it logs the member out everywhere
+        portal_last_login_at: 'DATETIME',
     }, () => {
         // no two members can share a student or club ID (empty ones are allowed to repeat)
         db.run(`CREATE UNIQUE INDEX IF NOT EXISTS members_student_id ON members (student_id)`, (err) => {

@@ -61,6 +61,11 @@ function feeBadge(m) {
         : '<span class="badge badge-rejected">Fee unpaid</span>';
 }
 
+// shown once the member has set up their login on the website's Member Portal
+function portalBadge(m) {
+    return m.has_portal ? '<span class="badge badge-role" title="Has set up a Member Portal login">Portal</span>' : '';
+}
+
 // the same buttons in list and grid view
 function actionButtons(m, compact) {
     return `
@@ -68,6 +73,7 @@ function actionButtons(m, compact) {
         <button class="btn btn-sm btn-ghost" data-action="photo" data-id="${m.id}">Photo</button>
         <button class="btn btn-sm btn-ghost" data-action="fee" data-id="${m.id}">Fee</button>
         <a class="btn btn-sm btn-ghost" href="card.html?id=${encodeURIComponent(m.id)}" target="_blank" rel="noopener">ID card</a>
+        ${m.has_portal ? `<button class="btn btn-sm btn-ghost" data-action="portal" data-id="${m.id}">Reset login</button>` : ''}
         <button class="btn btn-sm btn-danger" data-action="delete" data-id="${m.id}" aria-label="Delete ${escapeHtml(m.name)}">${compact ? '🗑' : 'Delete'}</button>`;
 }
 
@@ -106,6 +112,7 @@ function render() {
                     <h3>${escapeHtml(m.name)}</h3>
                     ${m.position ? `<span class="badge badge-role">${escapeHtml(m.position)}</span>` : ''}
                     ${feeBadge(m)}
+                    ${portalBadge(m)}
                     <p class="meta">${idsHtml(m)}</p>
                     <p class="meta">${escapeHtml(m.email)}</p>
                     ${m.phone ? `<p class="meta">${escapeHtml(m.phone)}</p>` : ''}
@@ -121,6 +128,7 @@ function render() {
                 <h3>${escapeHtml(m.name)}
                     ${m.position ? `<span class="badge badge-role">${escapeHtml(m.position)}</span>` : ''}
                     ${feeBadge(m)}
+                    ${portalBadge(m)}
                 </h3>
                 <p class="meta">${idsHtml(m)}</p>
                 <p class="meta">${escapeHtml(m.email)}${m.phone ? ` · ${escapeHtml(m.phone)}` : ''}</p>
@@ -217,6 +225,21 @@ list.addEventListener('click', async (e) => {
         document.getElementById('photo-remove').classList.toggle('hidden', !member.photo_path);
         photoForm.reset();
         openModal(photoDialog);
+    }
+
+    if (button.dataset.action === 'portal') {
+        if (!(await confirmBox({
+            title: `Reset ${member.name}'s portal login?`,
+            message: 'Their password is removed and they are logged out. They can set up a new one on the Member Portal page with their club ID, student ID and email.',
+            confirmText: 'Reset login',
+        }))) return;
+        try {
+            await adminApi(`/members/${member.id}/portal`, { method: 'DELETE' });
+            toast('Portal login reset');
+            load();
+        } catch (err) {
+            toast(err.message, 'error');
+        }
     }
 
     if (button.dataset.action === 'delete') {

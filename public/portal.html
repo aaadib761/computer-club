@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Member Portal | NDUB Computer Club</title>
+    <meta name="description" content="Log in to see your membership card, events and certificates.">
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header id="site-header"></header>
+
+    <main>
+        <section class="page-head">
+            <div class="container">
+                <h1>Member Portal</h1>
+                <p id="page-sub">Your membership card, events and certificates in one place.</p>
+            </div>
+        </section>
+
+        <!-- logged out: log in, or set up the account the first time -->
+        <section class="section" id="auth">
+            <div class="container">
+                <div class="card form-card">
+                    <div class="portal-tabs" role="tablist">
+                        <button type="button" role="tab" data-tab="login" aria-selected="true">Log in</button>
+                        <button type="button" role="tab" data-tab="setup" aria-selected="false">First time here?</button>
+                    </div>
+
+                    <form id="login-form" method="post" novalidate>
+                        <div class="form-message hidden" role="status"></div>
+                        <div class="field">
+                            <label for="l-club">Club ID</label>
+                            <input id="l-club" name="club_id" required maxlength="30" placeholder="e.g. NDUBCC-001" autocomplete="username">
+                        </div>
+                        <div class="field">
+                            <label for="l-password">Password</label>
+                            <input id="l-password" name="password" type="password" required autocomplete="current-password">
+                        </div>
+                        <button class="btn" type="submit">Log in</button>
+                        <p class="hint portal-hint">Forgot your password? Ask a committee member to reset your account, then set it up again.</p>
+                    </form>
+
+                    <form id="setup-form" class="hidden" method="post" novalidate>
+                        <div class="form-message hidden" role="status"></div>
+                        <p class="meta">Your club ID and student ID are printed on your membership card. Use the email address you gave when you joined.</p>
+                        <div class="field-row">
+                            <div class="field">
+                                <label for="s-club">Club ID</label>
+                                <input id="s-club" name="club_id" required maxlength="30" placeholder="e.g. NDUBCC-001" autocomplete="username">
+                            </div>
+                            <div class="field">
+                                <label for="s-student">Student ID</label>
+                                <input id="s-student" name="student_id" required maxlength="30" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="s-email">Email</label>
+                            <input id="s-email" name="email" type="email" required maxlength="150" autocomplete="email">
+                        </div>
+                        <div class="field-row">
+                            <div class="field">
+                                <label for="s-password">New password <small>(8+ characters)</small></label>
+                                <input id="s-password" name="password" type="password" required minlength="8" autocomplete="new-password">
+                            </div>
+                            <div class="field">
+                                <label for="s-confirm">Repeat password</label>
+                                <input id="s-confirm" name="confirm" type="password" required minlength="8" autocomplete="new-password">
+                            </div>
+                        </div>
+                        <button class="btn" type="submit">Set up my account</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- logged in -->
+        <section class="section hidden" id="dashboard">
+            <div class="container portal-layout">
+                <aside class="portal-side">
+                    <div class="card portal-profile" id="profile"></div>
+                    <div class="card portal-card" id="member-card"></div>
+                </aside>
+
+                <div class="portal-main">
+                    <div class="section-title"><h2>Upcoming events</h2></div>
+                    <div id="events" class="grid"><div class="loading">Loading…</div></div>
+
+                    <div class="section-title portal-gap"><h2>Events I attended</h2></div>
+                    <div id="attended" class="grid"><div class="loading">Loading…</div></div>
+
+                    <div class="section-title portal-gap"><h2>Account</h2></div>
+                    <div class="grid grid-2">
+                        <form id="password-form" class="card" method="post" novalidate>
+                            <h3>Change password</h3>
+                            <div class="form-message hidden" role="status"></div>
+                            <div class="field">
+                                <label for="p-old">Current password</label>
+                                <input id="p-old" name="oldPassword" type="password" required autocomplete="current-password">
+                            </div>
+                            <div class="field">
+                                <label for="p-new">New password <small>(8+ characters)</small></label>
+                                <input id="p-new" name="newPassword" type="password" required minlength="8" autocomplete="new-password">
+                            </div>
+                            <button class="btn" type="submit">Change password</button>
+                        </form>
+                        <div class="card">
+                            <h3>Log out</h3>
+                            <p class="meta">Log out of this browser, or of every device where you're logged in (for example after using a shared computer).</p>
+                            <div class="portal-actions">
+                                <button class="btn btn-outline" id="logout-btn" type="button">Log out</button>
+                                <button class="btn btn-outline" id="logout-all-btn" type="button">Log out everywhere</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer id="site-footer"></footer>
+
+    <script src="js/common.js"></script>
+    <script src="js/pages/portal.js"></script>
+</body>
+</html>

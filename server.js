@@ -171,6 +171,8 @@ function verifyAdmin(req, res, next) {
     if (!token) return res.status(401).json({ error: 'Token missing' });
     jwt.verify(token, JWT_SECRET, (err, user) => {
         if (err) return res.status(403).json({ error: 'Invalid token' });
+        // member portal tokens are signed with the same secret, so never let one through as an admin
+        if (user.kind) return res.status(403).json({ error: 'Invalid token' });
 
         // the token can outlive the account, so make sure the admin still exists
         db.get(`SELECT id, username, token_version FROM admins WHERE id = ?`, [user.id], (err, admin) => {
@@ -192,6 +194,37 @@ function verifyAdmin(req, res, next) {
 
 function signAdminToken(admin) {
     return jwt.sign({ id: admin.id, username: admin.username, tv: admin.token_version || 0 }, JWT_SECRET, { expiresIn: '1h' });
+}
+
+// Member portal logins work like admin ones, but the token says kind: 'member' and only opens /portal routes.
+function verifyMember(req, res, next) {
+    const token = (req.headers['authorization'] || '').split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Please log in.' });
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err || user.kind !== 'member') return res.status(401).json({ error: 'Please log in again.' });
+        db.get(`SELECT id, portal_token_version FROM members WHERE id = ? AND portal_password IS NOT NULL`, [user.id], (err, member) => {
+            if (err) {
+                console.error('Error verifying member:', err.message);
+                return res.status(500).json({ error: 'Failed to verify member' });
+            }
+            // a deleted member, a reset account or "log out everywhere" all end the session
+            if (!member || (user.tv || 0) !== member.portal_token_version) {
+                return res.status(401).json({ error: 'Session ended. Please log in again.' });
+            }
+            req.member = member;
+            next();
+        });
+    });
+}
+
+function signMemberToken(member) {
+    return jwt.sign({ kind: 'member', id: member.id, tv: member.portal_token_version || 0 }, JWT_SECRET, { expiresIn: '7d' });
+}
+
+// what admins see about a member: never the portal password hash, just whether they've set up the portal
+function memberForAdmin(row) {
+    const { portal_password, portal_token_version, ...rest } = row;
+    return { ...rest, has_portal: !!portal_password };
 }
 
 // Runs SQL statements one after another: [[sql, params], ...]. Calls done(err) after the last one or the first failure.
@@ -428,7 +461,7 @@ app.get('/members', verifyAdmin, (req, res) => {
             console.error('Error fetching members:', err.message);
             res.status(500).json({ error: 'Failed to fetch members' });
         } else {
-            res.status(200).json(rows);
+            res.status(200).json(rows.map(memberForAdmin));
         }
     });
 });
@@ -457,7 +490,7 @@ app.get('/members/:id', verifyAdmin, (req, res) => {
         } else if (!row) {
             res.status(404).json({ error: 'Member not found' });
         } else {
-            res.status(200).json(row);
+            res.status(200).json(memberForAdmin(row));
         }
     });
 });
@@ -528,25 +561,40 @@ app.put('/members/:id/fee', verifyAdmin, (req, res) => {
 
 // The QR code printed on a member's ID card. It opens the public verification page for their club ID.
 // Set PUBLIC_URL in .env once the site is live, so cards always point at the real address.
+async function sendCardQr(req, res, clubId) {
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    const url = `${base}/verify.html?club_id=${encodeURIComponent(clubId)}`;
+    try {
+        const svg = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+        res.type('image/svg+xml').send(svg);
+    } catch (err) {
+        console.error('Error making QR code:', err.message);
+        res.status(500).json({ error: 'Failed to make QR code' });
+    }
+}
+
 app.get('/members/:id/qr', verifyAdmin, (req, res) => {
-    db.get(`SELECT club_id FROM members WHERE id = ?`, [req.params.id], async (err, member) => {
+    db.get(`SELECT club_id FROM members WHERE id = ?`, [req.params.id], (err, member) => {
         if (err) {
             console.error('Error fetching member:', err.message);
             return res.status(500).json({ error: 'Failed to make QR code' });
         }
         if (!member) return res.status(404).json({ error: 'Member not found' });
         if (!member.club_id) return res.status(400).json({ error: 'Give this member a club ID first.' });
-        const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
-        const url = `${base}/verify.html?club_id=${encodeURIComponent(member.club_id)}`;
-        try {
-            const svg = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
-            res.type('image/svg+xml').send(svg);
-        } catch (err) {
-            console.error('Error making QR code:', err.message);
-            res.status(500).json({ error: 'Failed to make QR code' });
-        }
+        sendCardQr(req, res, member.club_id);
     });
 });
+
+// Cards stop being valid after the "Cards valid until" date in Settings (if one is set).
+// Calls done(validUntil, expired).
+function cardValidity(done) {
+    db.get(`SELECT value FROM settings WHERE key = 'card_valid_until'`, [], (err, setting) => {
+        const validUntil = !err && setting ? setting.value : null;
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        done(validUntil, !!validUntil && today > validUntil);
+    });
+}
 
 // Public check that a club ID card is real. Limited so nobody can quickly list every member.
 const verifyLimiter = rateLimit({
@@ -566,12 +614,7 @@ app.get('/verify/:clubId', verifyLimiter, (req, res) => {
             return res.status(500).json({ error: 'Failed to check' });
         }
         if (!member) return res.status(404).json({ error: 'No member has this club ID.' });
-        // cards stop being valid after the "Cards valid until" date in Settings (if one is set)
-        db.get(`SELECT value FROM settings WHERE key = 'card_valid_until'`, [], (err, setting) => {
-            const validUntil = !err && setting ? setting.value : null;
-            const now = new Date();
-            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-            const expired = !!validUntil && today > validUntil;
+        cardValidity((validUntil, expired) => {
             res.status(200).json({
                 name: member.name,
                 club_id: member.club_id,
@@ -1511,9 +1554,10 @@ app.post('/events/:id/checkin', verifyAdmin, (req, res) => {
     });
 });
 
-// Public: a member registers for an upcoming event (if registration is open and seats are left).
-app.post('/events/:id/register', memberFormLimiter, (req, res) => {
-    db.get(`${EVENT_SELECT} WHERE e.id = ?`, [req.params.id], (err, event) => {
+// Registers a member for an upcoming event (if registration is open and seats are left) and sends the reply.
+// Used by the public form on the event page and by the member portal.
+function registerForEvent(eventId, member, res) {
+    db.get(`${EVENT_SELECT} WHERE e.id = ?`, [eventId], (err, event) => {
         if (err) {
             console.error('Error fetching event:', err.message);
             return res.status(500).json({ error: 'Registration failed' });
@@ -1522,32 +1566,48 @@ app.post('/events/:id/register', memberFormLimiter, (req, res) => {
         if (!event.registration_open) return res.status(400).json({ error: 'Registration is not open for this event.' });
         if (eventHasStarted(event.date)) return res.status(400).json({ error: 'This event has already started.' });
 
-        findMemberByIds(req.body.club_id, req.body.student_id, (err, member) => {
+        // someone already registered should hear that, even when the event is now full
+        db.get(`SELECT 1 FROM event_registrations WHERE event_id = ? AND member_id = ?`, [event.id, member.id], (err, existing) => {
             if (err) {
-                console.error('Error fetching member:', err.message);
+                console.error('Error checking registration:', err.message);
                 return res.status(500).json({ error: 'Registration failed' });
             }
-            if (!member) return res.status(400).json({ error: 'Club ID and student ID don\'t match any member.' });
-            // someone already registered should hear that, even when the event is now full
-            db.get(`SELECT 1 FROM event_registrations WHERE event_id = ? AND member_id = ?`, [event.id, member.id], (err, existing) => {
+            if (existing) return res.status(200).json({ name: member.name, already: true });
+            if (event.capacity && event.registered >= event.capacity) {
+                return res.status(409).json({ error: 'Sorry, all seats are taken.' });
+            }
+            db.run(`INSERT INTO event_registrations (event_id, member_id) VALUES (?, ?)`, [event.id, member.id], (err) => {
+                if (err && err.message.includes('UNIQUE')) return res.status(200).json({ name: member.name, already: true });
                 if (err) {
-                    console.error('Error checking registration:', err.message);
+                    console.error('Error registering:', err.message);
                     return res.status(500).json({ error: 'Registration failed' });
                 }
-                if (existing) return res.status(200).json({ name: member.name, already: true });
-                if (event.capacity && event.registered >= event.capacity) {
-                    return res.status(409).json({ error: 'Sorry, all seats are taken.' });
-                }
-                db.run(`INSERT INTO event_registrations (event_id, member_id) VALUES (?, ?)`, [event.id, member.id], (err) => {
-                    if (err && err.message.includes('UNIQUE')) return res.status(200).json({ name: member.name, already: true });
-                    if (err) {
-                        console.error('Error registering:', err.message);
-                        return res.status(500).json({ error: 'Registration failed' });
-                    }
-                    res.status(201).json({ name: member.name, already: false });
-                });
+                res.status(201).json({ name: member.name, already: false });
             });
         });
+    });
+}
+
+function unregisterFromEvent(eventId, member, res) {
+    db.run(`DELETE FROM event_registrations WHERE event_id = ? AND member_id = ?`, [eventId, member.id], function (err) {
+        if (err) {
+            console.error('Error cancelling registration:', err.message);
+            return res.status(500).json({ error: 'Could not cancel' });
+        }
+        if (this.changes === 0) return res.status(404).json({ error: 'You weren\'t registered for this event.' });
+        res.status(200).json({ name: member.name });
+    });
+}
+
+// Public: a member registers for an upcoming event with their club ID + student ID.
+app.post('/events/:id/register', memberFormLimiter, (req, res) => {
+    findMemberByIds(req.body.club_id, req.body.student_id, (err, member) => {
+        if (err) {
+            console.error('Error fetching member:', err.message);
+            return res.status(500).json({ error: 'Registration failed' });
+        }
+        if (!member) return res.status(400).json({ error: 'Club ID and student ID don\'t match any member.' });
+        registerForEvent(req.params.id, member, res);
     });
 });
 
@@ -1559,14 +1619,7 @@ app.post('/events/:id/unregister', memberFormLimiter, (req, res) => {
             return res.status(500).json({ error: 'Could not cancel' });
         }
         if (!member) return res.status(400).json({ error: 'Club ID and student ID don\'t match any member.' });
-        db.run(`DELETE FROM event_registrations WHERE event_id = ? AND member_id = ?`, [req.params.id, member.id], function (err) {
-            if (err) {
-                console.error('Error cancelling registration:', err.message);
-                return res.status(500).json({ error: 'Could not cancel' });
-            }
-            if (this.changes === 0) return res.status(404).json({ error: 'You weren\'t registered for this event.' });
-            res.status(200).json({ name: member.name });
-        });
+        unregisterFromEvent(req.params.id, member, res);
     });
 });
 
@@ -1698,6 +1751,176 @@ app.get('/events/:id/certificates', verifyAdmin, (req, res) => {
             return res.status(500).json({ error: 'Failed to fetch certificates' });
         }
         res.status(200).json(rows.map(r => ({ ...r, code: certificateCode(req.params.id, r.member_id) })));
+    });
+});
+
+// ---------- member portal ----------
+
+// own counter (not the admin one), still strict enough that passwords can't be guessed quickly
+const portalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: 'Too many tries. Please wait a few minutes and try again.' },
+});
+
+function dbGet(query, params) {
+    return new Promise((resolve, reject) => db.get(query, params, (err, row) => (err ? reject(err) : resolve(row))));
+}
+function dbAll(query, params) {
+    return new Promise((resolve, reject) => db.all(query, params, (err, rows) => (err ? reject(err) : resolve(rows))));
+}
+
+// First visit: the member proves who they are with club ID + student ID (printed on their card)
+// plus their email (not on the card, so a lost card isn't enough), then picks a password.
+app.post('/portal/setup', portalLimiter, async (req, res) => {
+    const passwordError = checkPassword(req.body.password);
+    if (passwordError) return res.status(400).json({ error: passwordError });
+    const email = cleanText(req.body.email);
+    if (!email) return res.status(400).json({ error: 'email is required.' });
+    try {
+        const member = await dbGet(
+            `SELECT id, portal_password, portal_token_version FROM members WHERE club_id = ? AND student_id = ? AND LOWER(email) = LOWER(?)`,
+            [cleanId(req.body.club_id), cleanId(req.body.student_id), email]);
+        if (!member) return res.status(400).json({ error: 'These details don\'t match any member. Check them against your membership card.' });
+        if (member.portal_password) {
+            return res.status(409).json({ error: 'This account is already set up. Log in instead, or ask a committee member to reset it if you forgot your password.' });
+        }
+        const hash = await bcrypt.hash(req.body.password, 10);
+        db.run(`UPDATE members SET portal_password = ?, portal_last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND portal_password IS NULL`,
+            [hash, member.id], function (err) {
+                if (err) {
+                    console.error('Error setting up portal account:', err.message);
+                    return res.status(500).json({ error: 'Could not set up your account' });
+                }
+                if (this.changes === 0) return res.status(409).json({ error: 'This account is already set up. Log in instead.' });
+                res.status(201).json({ token: signMemberToken(member) });
+            });
+    } catch (err) {
+        console.error('Error setting up portal account:', err.message);
+        res.status(500).json({ error: 'Could not set up your account' });
+    }
+});
+
+app.post('/portal/login', portalLimiter, async (req, res) => {
+    const { password } = req.body;
+    if (typeof password !== 'string' || !password) return res.status(400).json({ error: 'Club ID and password are required.' });
+    try {
+        const member = await dbGet(`SELECT id, portal_password, portal_token_version FROM members WHERE club_id = ?`, [cleanId(req.body.club_id)]);
+        // same answer for a wrong club ID, no account yet, or a wrong password, so nobody can probe which club IDs exist
+        if (!member || !member.portal_password || !(await bcrypt.compare(password, member.portal_password))) {
+            return res.status(401).json({ error: 'Wrong club ID or password. First time here? Set up your account instead.' });
+        }
+        db.run(`UPDATE members SET portal_last_login_at = CURRENT_TIMESTAMP WHERE id = ?`, [member.id], (err) => {
+            if (err) console.error('Error saving member login time:', err.message);
+        });
+        res.status(200).json({ token: signMemberToken(member) });
+    } catch (err) {
+        console.error('Error logging member in:', err.message);
+        res.status(500).json({ error: 'Could not log in' });
+    }
+});
+
+// Everything the portal dashboard shows, in one request.
+app.get('/portal/me', verifyMember, async (req, res) => {
+    const id = req.member.id;
+    try {
+        const member = await dbGet(`SELECT name, club_id, student_id, department, batch, email, phone, position, photo_path,
+            fee_paid, fee_paid_at, created_at FROM members WHERE id = ?`, [id]);
+        const attended = await dbAll(`SELECT e.id, e.title, e.date, e.category, e.venue, a.status
+            FROM attendance a JOIN events e ON e.id = a.event_id
+            WHERE a.member_id = ? AND a.status IN ('present', 'late') ORDER BY e.date DESC`, [id]);
+        // upcoming events the member could register for, or already has
+        const upcoming = await dbAll(`${EVENT_SELECT}
+            WHERE e.registration_open = 1 OR EXISTS (SELECT 1 FROM event_registrations r WHERE r.event_id = e.id AND r.member_id = ?)
+            ORDER BY e.date`, [id]);
+        const mine = new Set((await dbAll(`SELECT event_id FROM event_registrations WHERE member_id = ?`, [id])).map(r => r.event_id));
+        cardValidity((validUntil, expired) => {
+            res.status(200).json({
+                member: { ...member, fee_paid: member.fee_paid === 1 },
+                card: { valid_until: validUntil, expired, active: member.fee_paid === 1 && !expired },
+                // certificates only exist once the event has started, same as the public claim form
+                attended: attended.map(e => ({ ...e, certificate: eventHasStarted(e.date) ? certificateCode(e.id, id) : null })),
+                events: upcoming.filter(e => !eventHasStarted(e.date)).map(e => ({
+                    id: e.id, title: e.title, date: e.date, category: e.category, venue: e.venue,
+                    registration_open: e.registration_open === 1,
+                    seats_left: e.capacity ? Math.max(0, e.capacity - e.registered) : null,
+                    registered: mine.has(e.id),
+                })),
+            });
+        });
+    } catch (err) {
+        console.error('Error loading member portal:', err.message);
+        res.status(500).json({ error: 'Could not load your details' });
+    }
+});
+
+app.get('/portal/qr', verifyMember, (req, res) => {
+    db.get(`SELECT club_id FROM members WHERE id = ?`, [req.member.id], (err, member) => {
+        if (err || !member || !member.club_id) return res.status(404).json({ error: 'No card QR code yet.' });
+        sendCardQr(req, res, member.club_id);
+    });
+});
+
+app.put('/portal/password', verifyMember, portalLimiter, async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    if (typeof oldPassword !== 'string' || !oldPassword) return res.status(400).json({ error: 'Your current password is required.' });
+    const passwordError = checkPassword(newPassword, 'The new password');
+    if (passwordError) return res.status(400).json({ error: passwordError });
+    try {
+        const member = await dbGet(`SELECT id, portal_password, portal_token_version FROM members WHERE id = ?`, [req.member.id]);
+        if (!(await bcrypt.compare(oldPassword, member.portal_password))) {
+            return res.status(401).json({ error: 'Your current password is wrong.' });
+        }
+        const hash = await bcrypt.hash(newPassword, 10);
+        // bumping the version logs out every other device; this one gets a fresh token below
+        db.run(`UPDATE members SET portal_password = ?, portal_token_version = portal_token_version + 1 WHERE id = ?`, [hash, member.id], (err) => {
+            if (err) {
+                console.error('Error changing member password:', err.message);
+                return res.status(500).json({ error: 'Could not change your password' });
+            }
+            res.status(200).json({ token: signMemberToken({ id: member.id, portal_token_version: member.portal_token_version + 1 }) });
+        });
+    } catch (err) {
+        console.error('Error changing member password:', err.message);
+        res.status(500).json({ error: 'Could not change your password' });
+    }
+});
+
+app.post('/portal/logout-all', verifyMember, (req, res) => {
+    db.run(`UPDATE members SET portal_token_version = portal_token_version + 1 WHERE id = ?`, [req.member.id], (err) => {
+        if (err) {
+            console.error('Error logging member out:', err.message);
+            return res.status(500).json({ error: 'Could not log out' });
+        }
+        res.status(200).json({ message: 'Logged out everywhere' });
+    });
+});
+
+app.post('/portal/events/:id/register', verifyMember, (req, res) => {
+    db.get(`SELECT id, name FROM members WHERE id = ?`, [req.member.id], (err, member) => {
+        if (err || !member) return res.status(500).json({ error: 'Registration failed' });
+        registerForEvent(req.params.id, member, res);
+    });
+});
+
+app.post('/portal/events/:id/unregister', verifyMember, (req, res) => {
+    db.get(`SELECT id, name FROM members WHERE id = ?`, [req.member.id], (err, member) => {
+        if (err || !member) return res.status(500).json({ error: 'Could not cancel' });
+        unregisterFromEvent(req.params.id, member, res);
+    });
+});
+
+// Admin: a member forgot their portal password. This removes it (and logs them out), so they can set it up again.
+app.delete('/members/:id/portal', verifyAdmin, (req, res) => {
+    db.run(`UPDATE members SET portal_password = NULL, portal_token_version = portal_token_version + 1 WHERE id = ?`, [req.params.id], function (err) {
+        if (err) {
+            console.error('Error resetting portal account:', err.message);
+            res.status(500).json({ error: 'Failed to reset the portal account' });
+        } else if (this.changes === 0) {
+            res.status(404).json({ error: 'Member not found' });
+        } else {
+            res.status(200).json({ message: 'Portal account reset' });
+        }
     });
 });
 

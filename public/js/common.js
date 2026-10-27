@@ -7,6 +7,7 @@ const NAV_LINKS = [
     { href: 'committee.html', label: 'Committee' },
     { href: 'about.html', label: 'About' },
     { href: 'contact.html', label: 'Contact' },
+    { href: 'portal.html', label: 'Member Login' },
 ];
 
 function renderHeader() {
