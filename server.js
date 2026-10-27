@@ -13,6 +13,7 @@ const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
 const mailer = require('./mailer');
+const { passwordProblem, LoginLockout } = require('./security');
 
 const UPLOAD_TYPE_ERROR = 'Only JPEG, PNG, and WEBP images are allowed';
 const INVALID_IMAGE_ERROR = "That file isn't a valid image.";
@@ -58,6 +59,30 @@ if (JWT_SECRET.length < 32) {
     }
     console.warn('Warning: ' + advice);
 }
+// Settings that are easy to forget when the site goes live. On your own PC (no https PUBLIC_URL,
+// NODE_ENV not production) nothing is printed.
+function warnAboutLiveSettings() {
+    const publicUrl = process.env.PUBLIC_URL || '';
+    const looksLive = /^https:\/\//i.test(publicUrl) && !/localhost|127\.0\.0\.1/i.test(publicUrl);
+    const warnings = [];
+    if (looksLive && !IS_PRODUCTION) {
+        warnings.push('PUBLIC_URL is a live https address, but NODE_ENV is not "production". Set NODE_ENV=production so browsers are told to always use HTTPS.');
+    }
+    if (IS_PRODUCTION && !publicUrl) {
+        warnings.push('PUBLIC_URL is not set. Card QR codes, email links and calendar links need the site\'s real address, e.g. PUBLIC_URL=https://ndubcc.example.com');
+    }
+    if (IS_PRODUCTION && /^http:\/\//i.test(publicUrl)) {
+        warnings.push('PUBLIC_URL starts with http://. Use https:// so logins and member data are encrypted on the way.');
+    }
+    if (IS_PRODUCTION && !process.env.TRUST_PROXY) {
+        warnings.push('TRUST_PROXY is not set. If your host puts the site behind a proxy (Render, Railway, nginx...), set TRUST_PROXY=1, or every visitor shares one login rate limit.');
+    }
+    warnings.forEach(w => console.warn(`Warning: ${w}`));
+}
+warnAboutLiveSettings();
+
+// every token this server makes is HS256; refusing anything else blocks tricks that swap the algorithm
+const JWT_VERIFY_OPTIONS = { algorithms: ['HS256'] };
 // behind a host's proxy (Render, Railway, nginx...), set TRUST_PROXY=1 so rate limits see each visitor's real IP
 if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
 const loginLimiter = rateLimit({ 
@@ -71,7 +96,9 @@ const formLimiter = () => rateLimit({
     max: 5,
     message: { error: 'Too many submissions. Please try again later.' }
 });
-const MIN_PASSWORD_LENGTH = 8;
+// after 5 wrong passwords in a row, that admin username / member club ID is locked for 15 minutes
+const adminLockout = new LoginLockout();
+const memberLockout = new LoginLockout();
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
@@ -150,12 +177,10 @@ const ANNOUNCEMENT_RULES = {
 const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,50}$/;
 const USERNAME_ERROR = 'Username must be 3-50 characters: letters, numbers, dots, dashes or underscores.';
 
-// bcrypt only uses the first 72 bytes of a password, so longer ones are refused
-function checkPassword(password, field = 'password') {
-    if (typeof password !== 'string') return `${field} is required.`;
-    if (password.length < MIN_PASSWORD_LENGTH) return `${field} must be at least ${MIN_PASSWORD_LENGTH} characters`;
-    if (Buffer.byteLength(password) > 72) return `${field} must be at most 72 characters.`;
-    return null;
+// length limits, common passwords and easy patterns (see security.js); `personal` is the
+// username or IDs the password shouldn't contain
+function checkPassword(password, field = 'password', personal = []) {
+    return passwordProblem(password, { field, personal });
 }
 
 function checkRank(value) {
@@ -179,7 +204,7 @@ function adminAuth(roles) {
 
         const token = authHeader.split(' ')[1];
         if (!token) return res.status(401).json({ error: 'Token missing' });
-        jwt.verify(token, JWT_SECRET, (err, user) => {
+        jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS, (err, user) => {
             if (err) return res.status(403).json({ error: 'Invalid token' });
             // member portal tokens are signed with the same secret, so never let one through as an admin
             if (user.kind) return res.status(403).json({ error: 'Invalid token' });
@@ -219,7 +244,7 @@ function signAdminToken(admin) {
 function verifyMember(req, res, next) {
     const token = (req.headers['authorization'] || '').split(' ')[1];
     if (!token) return res.status(401).json({ error: 'Please log in.' });
-    jwt.verify(token, JWT_SECRET, (err, user) => {
+    jwt.verify(token, JWT_SECRET, JWT_VERIFY_OPTIONS, (err, user) => {
         if (err || user.kind !== 'member') return res.status(401).json({ error: 'Please log in again.' });
         db.get(`SELECT id, portal_token_version FROM members WHERE id = ? AND portal_password IS NOT NULL`, [user.id], (err, member) => {
             if (err) {
@@ -1076,7 +1101,7 @@ app.post('/admin/register', verifyOwner, async (req, res) => {
     const role = req.body.role === undefined ? 'editor' : req.body.role;
     if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) return res.status(400).json({ error: USERNAME_ERROR });
     if (!ADMIN_ROLES.includes(role)) return res.status(400).json({ error: `role must be one of: ${ADMIN_ROLES.join(', ')}.` });
-    const passwordError = checkPassword(password);
+    const passwordError = checkPassword(password, 'password', [username]);
     if (passwordError) return res.status(400).json({ error: passwordError });
     const hashedPassword = await bcrypt.hash(password, 10);
     const query = `INSERT INTO admins (username, password, role) VALUES (?, ?, ?)`;
@@ -1120,6 +1145,9 @@ app.post('/admin/login', loginLimiter, (req, res) => {
     if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
         return res.status(400).json({ error: 'username and password required' });
     }
+    // while locked, the password isn't even checked, so guessing can't continue
+    const locked = adminLockout.minutesLeft(username);
+    if (locked) return res.status(429).json({ error: lockedMessage(locked) });
     const query = `SELECT * FROM admins WHERE username = ?`;
 
     db.get(query, [username], async (err, rows) => {
@@ -1128,9 +1156,15 @@ app.post('/admin/login', loginLimiter, (req, res) => {
             res.status(500).json({ error: 'Failed to fetch admin' });
         } else if (!rows || !(await bcrypt.compare(password, rows.password))) {
             // failed logins are worth seeing: lots of them can mean someone is guessing passwords
-            recordActivity({ id: rows ? rows.id : null, username }, 'account', 'Failed login', rows ? 'wrong password' : 'no such username');
+            const admin = { id: rows ? rows.id : null, username };
+            recordActivity(admin, 'account', 'Failed login', rows ? 'wrong password' : 'no such username');
+            if (adminLockout.fail(username)) {
+                recordActivity(admin, 'account', 'Account locked', `after ${adminLockout.maxFailures} wrong passwords in a row`);
+                return res.status(429).json({ error: lockedMessage(adminLockout.minutesLeft(username)) });
+            }
             res.status(401).json({ error: 'Invalid username or password' });
         } else {
+            adminLockout.succeed(username);
             db.run(`UPDATE admins SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`, [rows.id], (err) => {
                 if (err) console.error('Error saving last login:', err.message);
             });
@@ -1140,10 +1174,14 @@ app.post('/admin/login', loginLimiter, (req, res) => {
     });
 });
 
+function lockedMessage(minutes) {
+    return `Too many wrong passwords for this account. It is locked for ${minutes} more minute${minutes === 1 ? '' : 's'}; please try again after that.`;
+}
+
 app.put('/admin/password', verifyAnyAdmin, async (req, res) => {
     const { oldPassword, newPassword } = req.body;
     if (typeof oldPassword !== 'string' || !oldPassword) return res.status(400).json({ error: 'oldPassword and newPassword required' });
-    const passwordError = checkPassword(newPassword, 'newPassword');
+    const passwordError = checkPassword(newPassword, 'newPassword', [req.user.username]);
     if (passwordError) return res.status(400).json({ error: passwordError });
     const query = `SELECT * FROM admins WHERE id = ?`;
     db.get(query, [req.user.id], async (err, row) => {
@@ -2171,7 +2209,7 @@ function dbAll(query, params) {
 // First visit: the member proves who they are with club ID + student ID (printed on their card)
 // plus their email (not on the card, so a lost card isn't enough), then picks a password.
 app.post('/portal/setup', portalLimiter, async (req, res) => {
-    const passwordError = checkPassword(req.body.password);
+    const passwordError = checkPassword(req.body.password, 'password', [req.body.club_id, req.body.student_id]);
     if (passwordError) return res.status(400).json({ error: passwordError });
     const email = cleanText(req.body.email);
     if (!email) return res.status(400).json({ error: 'email is required.' });
@@ -2202,12 +2240,19 @@ app.post('/portal/setup', portalLimiter, async (req, res) => {
 app.post('/portal/login', portalLimiter, async (req, res) => {
     const { password } = req.body;
     if (typeof password !== 'string' || !password) return res.status(400).json({ error: 'Club ID and password are required.' });
+    const clubId = cleanId(req.body.club_id);
+    const locked = memberLockout.minutesLeft(clubId);
+    if (locked) return res.status(429).json({ error: `${lockedMessage(locked)} Forgot it? Use "Forgot your password?" below.` });
     try {
-        const member = await dbGet(`SELECT id, portal_password, portal_token_version FROM members WHERE club_id = ?`, [cleanId(req.body.club_id)]);
+        const member = await dbGet(`SELECT id, portal_password, portal_token_version FROM members WHERE club_id = ?`, [clubId]);
         // same answer for a wrong club ID, no account yet, or a wrong password, so nobody can probe which club IDs exist
         if (!member || !member.portal_password || !(await bcrypt.compare(password, member.portal_password))) {
+            if (memberLockout.fail(clubId)) {
+                return res.status(429).json({ error: `${lockedMessage(memberLockout.minutesLeft(clubId))} Forgot it? Use "Forgot your password?" below.` });
+            }
             return res.status(401).json({ error: 'Wrong club ID or password. First time here? Set up your account instead.' });
         }
+        memberLockout.succeed(clubId);
         db.run(`UPDATE members SET portal_last_login_at = CURRENT_TIMESTAMP WHERE id = ?`, [member.id], (err) => {
             if (err) console.error('Error saving member login time:', err.message);
         });
@@ -2262,10 +2307,10 @@ app.get('/portal/qr', verifyMember, (req, res) => {
 app.put('/portal/password', verifyMember, portalLimiter, async (req, res) => {
     const { oldPassword, newPassword } = req.body;
     if (typeof oldPassword !== 'string' || !oldPassword) return res.status(400).json({ error: 'Your current password is required.' });
-    const passwordError = checkPassword(newPassword, 'The new password');
-    if (passwordError) return res.status(400).json({ error: passwordError });
     try {
-        const member = await dbGet(`SELECT id, portal_password, portal_token_version FROM members WHERE id = ?`, [req.member.id]);
+        const member = await dbGet(`SELECT id, club_id, student_id, portal_password, portal_token_version FROM members WHERE id = ?`, [req.member.id]);
+        const passwordError = checkPassword(newPassword, 'The new password', [member.club_id, member.student_id]);
+        if (passwordError) return res.status(400).json({ error: passwordError });
         if (!(await bcrypt.compare(oldPassword, member.portal_password))) {
             return res.status(401).json({ error: 'Your current password is wrong.' });
         }
@@ -2318,11 +2363,13 @@ app.post('/portal/reset', portalLimiter, (req, res) => {
     const passwordError = checkPassword(req.body.password);
     if (passwordError) return res.status(400).json({ error: passwordError });
     const expired = { error: 'This reset link has expired or was already used. Please ask for a new one.' };
-    jwt.verify(String(req.body.token || ''), JWT_SECRET, async (err, data) => {
+    jwt.verify(String(req.body.token || ''), JWT_SECRET, JWT_VERIFY_OPTIONS, async (err, data) => {
         if (err || data.kind !== 'reset') return res.status(400).json(expired);
         try {
-            const member = await dbGet(`SELECT id, portal_token_version FROM members WHERE id = ? AND portal_password IS NOT NULL`, [data.id]);
+            const member = await dbGet(`SELECT id, club_id, student_id, portal_token_version FROM members WHERE id = ? AND portal_password IS NOT NULL`, [data.id]);
             if (!member || member.portal_token_version !== data.tv) return res.status(400).json(expired);
+            const personalError = checkPassword(req.body.password, 'password', [member.club_id, member.student_id]);
+            if (personalError) return res.status(400).json({ error: personalError });
             const hash = await bcrypt.hash(req.body.password, 10);
             db.run(`UPDATE members SET portal_password = ?, portal_token_version = portal_token_version + 1, portal_last_login_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND portal_token_version = ?`, [hash, member.id, data.tv], function (err) {
@@ -2331,6 +2378,7 @@ app.post('/portal/reset', portalLimiter, (req, res) => {
                     return res.status(500).json({ error: 'Could not reset your password' });
                 }
                 if (this.changes === 0) return res.status(400).json(expired);
+                memberLockout.succeed(member.club_id);  // a fresh password ends any lockout
                 res.status(200).json({ token: signMemberToken({ id: member.id, portal_token_version: data.tv + 1 }) });
             });
         } catch (err) {
