@@ -218,6 +218,16 @@ dialog.modal h2 { font-size: 1.25rem; margin-bottom: 16px; }
     background: var(--bg);
 }
 .field .hint { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+/* activity log */
+.activity-day { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 18px 0 6px; }
+.activity-day:first-child { margin-top: 0; }
+.activity-row { padding-top: 10px; padding-bottom: 10px; }
+.activity-row p { margin: 0; }
+.activity-icon { width: 34px; height: 34px; border-radius: 50%; background: var(--bg-soft); display: flex; align-items: center; justify-content: center; flex: none; }
+.activity-details { color: var(--muted); word-break: break-word; }
+.activity-time { margin: 0; flex: none; }
+.activity-warning .activity-icon { background: var(--error-soft); }
+
 /* the role dropdown next to each admin in Settings */
 .role-select {
     padding: 6px 10px;

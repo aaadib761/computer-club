@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activity | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+    <main class="admin-main">
+        <h1>Activity</h1>
+        <p class="page-sub">Who changed what in the admin panel, newest first. Kept for one year. Only owners can see this page.</p>
+
+        <div class="toolbar">
+            <input type="search" id="search" placeholder="Search (a name, an event, an admin…)" aria-label="Search activity">
+            <select id="area-filter" aria-label="Filter by area">
+                <option value="">Everything</option>
+                <option value="members">Members</option>
+                <option value="events">Events</option>
+                <option value="attendance">Attendance &amp; check-in</option>
+                <option value="requests">Join requests</option>
+                <option value="messages">Messages</option>
+                <option value="content">Announcements &amp; About</option>
+                <option value="settings">Settings</option>
+                <option value="admins">Admins</option>
+                <option value="account">Logins &amp; accounts</option>
+                <option value="data">Exports &amp; backups</option>
+            </select>
+            <select id="admin-filter" aria-label="Filter by admin">
+                <option value="">All admins</option>
+            </select>
+        </div>
+
+        <div id="list" class="list activity-list"><div class="loading">Loading…</div></div>
+        <p style="text-align: center; margin-top: 16px;">
+            <button class="btn btn-ghost hidden" id="more-btn">Show older</button>
+        </p>
+    </main>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script src="pages/activity.js"></script>
+</body>
+</html>

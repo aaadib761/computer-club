@@ -343,6 +343,139 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50kb' }));
 app.use('/uploads', express.static('uploads'));
 
+// ---------- activity log ----------
+// Every successful admin change is written down automatically: who, what, which item and when.
+// Owners read it on the admin Activity page. Passwords and other private fields are never recorded.
+
+// "METHOD /route" -> [area, what happened]. Routes not listed here (like reading lists) aren't logged.
+const ACTIVITY = {
+    'POST /members': ['members', 'Added member'],
+    'PUT /members/:id': ['members', 'Edited member'],
+    'PUT /members/:id/fee': ['members', 'Changed fee status'],
+    'POST /members/:id/photo': ['members', 'Uploaded member photo'],
+    'DELETE /members/:id/photo': ['members', 'Removed member photo'],
+    'DELETE /members/:id/portal': ['members', 'Reset portal login'],
+    'DELETE /members/:id': ['members', 'Deleted member'],
+    'POST /events': ['events', 'Added event'],
+    'PUT /events/:id': ['events', 'Edited event'],
+    'DELETE /events/:id': ['events', 'Deleted event'],
+    'POST /events/:id/photos': ['events', 'Uploaded event photo'],
+    'DELETE /events/:id/photos/:photoId': ['events', 'Deleted event photo'],
+    'DELETE /events/:id/registrations/:memberId': ['events', 'Removed a registration'],
+    'POST /events/:id/checkin': ['attendance', 'Checked in'],
+    'POST /attendance': ['attendance', 'Marked attendance'],
+    'PUT /attendance/:id': ['attendance', 'Changed attendance'],
+    'DELETE /attendance/:id': ['attendance', 'Cleared attendance'],
+    'PUT /join-requests/:id': ['requests', 'Updated join request'],
+    'DELETE /join-requests/:id': ['requests', 'Deleted join request'],
+    'DELETE /contact/:id': ['messages', 'Deleted message'],
+    'POST /announcements': ['content', 'Posted announcement'],
+    'PUT /announcements/:id': ['content', 'Edited announcement'],
+    'DELETE /announcements/:id': ['content', 'Deleted announcement'],
+    'POST /advisors': ['content', 'Added advisor'],
+    'PUT /advisors/:id': ['content', 'Edited advisor'],
+    'DELETE /advisors/:id': ['content', 'Removed advisor'],
+    'POST /advisors/:id/photo': ['content', 'Uploaded advisor photo'],
+    'DELETE /advisors/:id/photo': ['content', 'Removed advisor photo'],
+    'POST /committee-archive': ['content', 'Archived committee'],
+    'DELETE /committee-archive/:id': ['content', 'Deleted archived committee'],
+    'PUT /settings': ['settings', 'Changed settings'],
+    'POST /email/test': ['settings', 'Sent test email'],
+    'POST /admin/register': ['admins', 'Added admin'],
+    'PUT /admin/:username/role': ['admins', 'Changed admin role'],
+    'DELETE /admin/:username': ['admins', 'Removed admin'],
+    'PUT /admin/password': ['account', 'Changed own password'],
+    'PUT /admin/username': ['account', 'Changed own username'],
+    'POST /admin/logout-all': ['account', 'Logged out everywhere'],
+    // reading these is worth knowing about: they take a copy of members' data
+    'GET /export/:type': ['data', 'Exported data'],
+    'POST /backups': ['data', 'Made a backup'],
+    'GET /backups/:name': ['data', 'Downloaded backup'],
+};
+
+// what an :id points at, looked up BEFORE the route runs, so even deleted items get a name in the log
+const ACTIVITY_TARGETS = {
+    members: `SELECT name AS label FROM members WHERE id = ?`,
+    events: `SELECT title AS label FROM events WHERE id = ?`,
+    attendance: `SELECT m.name || ' at ' || e.title AS label FROM attendance a
+        JOIN members m ON m.id = a.member_id JOIN events e ON e.id = a.event_id WHERE a.id = ?`,
+    'join-requests': `SELECT name AS label FROM join_requests WHERE id = ?`,
+    contact: `SELECT 'from ' || name AS label FROM contact_messages WHERE id = ?`,
+    announcements: `SELECT title AS label FROM announcements WHERE id = ?`,
+    advisors: `SELECT name AS label FROM advisors WHERE id = ?`,
+    'committee-archive': `SELECT term AS label FROM committee_archive WHERE id = ?`,
+};
+
+app.param('id', (req, res, next, id) => {
+    const query = ACTIVITY_TARGETS[req.path.split('/')[1]];
+    if (req.method === 'GET' || !query) return next();
+    db.get(query, [id], (err, row) => {
+        if (row && row.label) req.activityTarget = row.label;
+        next();
+    });
+});
+
+function recordActivity(admin, area, action, details) {
+    db.run(`INSERT INTO activity_log (admin_id, admin_username, area, action, details) VALUES (?, ?, ?, ?, ?)`,
+        [admin.id || null, String(admin.username || '').slice(0, 50), area, action, details ? String(details).slice(0, 300) : null], (err) => {
+            if (err) console.error('Error recording activity:', err.message);
+        });
+}
+
+// Builds the "which item" text from safe, chosen fields only (never the whole request body).
+function activityDetails(req, res) {
+    const b = req.body || {};
+    const p = req.params;
+    const parts = [];
+    if (req.activityTarget) parts.push(`"${req.activityTarget}"`);
+    else if (p.id) parts.push(`#${p.id}`);
+    // new items have no id yet, so use their name from the form
+    if (!p.id && req.method === 'POST') {
+        const name = b.name || b.title || b.term || b.username;
+        if (typeof name === 'string' && name.trim()) parts.push(`"${name.trim()}"`);
+    }
+    if (p.username) parts.push(p.username);
+    if (p.type) parts.push(p.type);
+    if (p.name) parts.push(p.name);
+    if (res.locals.activity) parts.push(res.locals.activity);
+    // what it was changed to
+    const to = [];
+    if (typeof b.status === 'string') to.push(b.status);
+    if (typeof b.paid === 'boolean') to.push(b.paid ? 'paid' : 'unpaid');
+    if (typeof b.role === 'string') to.push(b.role);
+    if (typeof b.newUsername === 'string') to.push(b.newUsername);
+    if (typeof b.to === 'string' && req.path === '/email/test') to.push(b.to);
+    if (req.path === '/settings') to.push(Object.keys(b).filter(k => SETTING_KEYS.includes(k)).join(', '));
+    if (to.length) parts.push(`→ ${to.join(', ')}`);
+    return parts.join(' ');
+}
+
+app.use((req, res, next) => {
+    res.on('finish', () => {
+        if (!req.user || !req.route || res.statusCode >= 400 || res.locals.skipActivity) return;
+        const entry = ACTIVITY[`${req.method} ${req.route.path}`];
+        if (!entry) return;
+        // attendance marked from the list has no :id yet, so look up who and which event
+        const { member_id, event_id } = req.body || {};
+        if (req.route.path === '/attendance' && member_id && event_id) {
+            return db.get(`SELECT (SELECT name FROM members WHERE id = ?) AS member, (SELECT title FROM events WHERE id = ?) AS event`,
+                [member_id, event_id], (err, row) => {
+                    if (row && row.member) res.locals.activity = `"${row.member} at ${row.event}"`;
+                    recordActivity(req.user, entry[0], entry[1], activityDetails(req, res));
+                });
+        }
+        recordActivity(req.user, entry[0], entry[1], activityDetails(req, res));
+    });
+    next();
+});
+
+// keep a year of history; older entries are removed (checked every hour along with backups)
+function pruneActivity() {
+    db.run(`DELETE FROM activity_log WHERE created_at < datetime('now', '-365 days')`, (err) => {
+        if (err) console.error('Error pruning activity log:', err.message);
+    });
+}
+
 // the QR-code reader used by admin check-in (served from node_modules so it stays a local script)
 app.get('/vendor/jsQR.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'node_modules', 'jsqr', 'dist', 'jsQR.js'));
@@ -993,18 +1126,16 @@ app.post('/admin/login', loginLimiter, (req, res) => {
         if (err) {
             console.error('Error fetching admin:', err.message);
             res.status(500).json({ error: 'Failed to fetch admin' });
-        } else if (!rows) {
+        } else if (!rows || !(await bcrypt.compare(password, rows.password))) {
+            // failed logins are worth seeing: lots of them can mean someone is guessing passwords
+            recordActivity({ id: rows ? rows.id : null, username }, 'account', 'Failed login', rows ? 'wrong password' : 'no such username');
             res.status(401).json({ error: 'Invalid username or password' });
         } else {
-            const isPasswordValid = await bcrypt.compare(password, rows.password);
-            if (!isPasswordValid) {
-                res.status(401).json({ error: 'Invalid username or password' });
-            } else {
-                db.run(`UPDATE admins SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`, [rows.id], (err) => {
-                    if (err) console.error('Error saving last login:', err.message);
-                });
-                res.status(200).json({ token: signAdminToken(rows) });
-            }
+            db.run(`UPDATE admins SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`, [rows.id], (err) => {
+                if (err) console.error('Error saving last login:', err.message);
+            });
+            recordActivity(rows, 'account', 'Logged in');
+            res.status(200).json({ token: signAdminToken(rows) });
         }
     });
 });
@@ -1109,6 +1240,32 @@ app.delete('/admin/:username', verifyOwner, (req, res) => {
         } else {
             res.status(200).json({ message: 'Admin deleted' });
         }
+    });
+});
+
+// Owner: the activity log, newest first, 100 at a time. ?before=<id> loads older entries;
+// ?area=, ?admin= and ?q= (search) narrow it down.
+app.get('/activity', verifyOwner, (req, res) => {
+    const where = [];
+    const params = [];
+    const before = Number(req.query.before);
+    if (Number.isInteger(before) && before > 0) { where.push('id < ?'); params.push(before); }
+    if (typeof req.query.area === 'string' && req.query.area) { where.push('area = ?'); params.push(req.query.area); }
+    if (typeof req.query.admin === 'string' && req.query.admin) { where.push('admin_username = ?'); params.push(req.query.admin); }
+    if (typeof req.query.q === 'string' && req.query.q.trim()) {
+        where.push(`(action LIKE ? ESCAPE '\\' OR details LIKE ? ESCAPE '\\' OR admin_username LIKE ? ESCAPE '\\')`);
+        const like = `%${req.query.q.trim().slice(0, 100).replace(/[\\%_]/g, '\\$&')}%`;
+        params.push(like, like, like);
+    }
+    const query = `SELECT id, admin_username, area, action, details, created_at FROM activity_log
+        ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT 101`;
+    db.all(query, params, (err, rows) => {
+        if (err) {
+            console.error('Error fetching activity:', err.message);
+            return res.status(500).json({ error: 'Failed to fetch activity' });
+        }
+        // one extra row tells us whether there's more to load
+        res.status(200).json({ entries: rows.slice(0, 100), more: rows.length > 100 });
     });
 });
 
@@ -1625,7 +1782,11 @@ app.post('/events/:id/checkin', verifyAnyAdmin, (req, res) => {
                     console.error('Error fetching attendance:', err.message);
                     return res.status(500).json({ error: 'Check-in failed' });
                 }
-                if (row && ['present', 'late'].includes(row.status)) return res.status(200).json({ member, already: true });
+                if (row && ['present', 'late'].includes(row.status)) {
+                    res.locals.skipActivity = true;  // scanning the same card twice isn't a change
+                    return res.status(200).json({ member, already: true });
+                }
+                res.locals.activity = member.name;
                 const [query, params] = row
                     ? [`UPDATE attendance SET status = 'present' WHERE id = ?`, [row.id]]
                     : [`INSERT INTO attendance (member_id, event_id, status) VALUES (?, ?, 'present')`, [member.id, event.id]];
@@ -2357,6 +2518,6 @@ app.listen(PORT, (err) => {
     }
     console.log(`Server is running on port ${PORT}`);
     // give the database a moment to finish setting up its tables first
-    setTimeout(backupIfDue, 5000);
-    setInterval(backupIfDue, 60 * 60 * 1000);
+    setTimeout(() => { backupIfDue(); pruneActivity(); }, 5000);
+    setInterval(() => { backupIfDue(); pruneActivity(); }, 60 * 60 * 1000);
 });

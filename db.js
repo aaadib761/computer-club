@@ -212,6 +212,20 @@ db.serialize(() => {
         if (err) console.error('Error creating advisors table:', err.message);
     });
 
+    // who changed what in the admin panel (owners read it on the Activity page)
+    // admin_username is copied in, so entries still make sense after an admin is renamed or removed
+    db.run(`CREATE TABLE IF NOT EXISTS activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_id INTEGER,
+        admin_username TEXT,
+        area TEXT NOT NULL,
+        action TEXT NOT NULL,
+        details TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`, (err) => {
+        if (err) console.error('Error creating activity_log table:', err.message);
+    });
+
     // snapshots of past committees: the term name plus a frozen list of who held which position
     db.run(`CREATE TABLE IF NOT EXISTS committee_archive (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

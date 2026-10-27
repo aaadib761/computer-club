@@ -101,7 +101,8 @@ async function adminApi(path, { method = 'GET', body } = {}) {
 
 // ---------- layout ----------
 
-// check-in volunteers only get Events (for the door check-in) and Settings (for their own password)
+// check-in volunteers only get Events (for the door check-in) and Settings (for their own password);
+// owner: true pages are only for owners
 const ADMIN_PAGES = [
     { href: 'index.html', label: 'Dashboard', icon: '🏠' },
     { href: 'members.html', label: 'Members', icon: '👥' },
@@ -110,6 +111,7 @@ const ADMIN_PAGES = [
     { href: 'about.html', label: 'About & Advisors', icon: '🏫' },
     { href: 'requests.html', label: 'Join Requests', icon: '✋', count: 'requests' },
     { href: 'messages.html', label: 'Messages', icon: '✉️', count: 'messages' },
+    { href: 'activity.html', label: 'Activity', icon: '🕘', owner: true },
     { href: 'settings.html', label: 'Settings', icon: '⚙️', checkin: true },
 ];
 
@@ -117,7 +119,7 @@ function renderAdminLayout(activeHref) {
     const admin = requireLogin();
     if (!admin) return null;
 
-    const pages = ADMIN_PAGES.filter(p => admin.role !== 'checkin' || p.checkin);
+    const pages = ADMIN_PAGES.filter(p => (p.owner ? admin.role === 'owner' : admin.role !== 'checkin' || p.checkin));
     // a page this role can't use (e.g. after logging in, which opens the Dashboard): go to the first one it can
     if (!pages.some(p => p.href === activeHref)) {
         location.replace(pages[0].href);
