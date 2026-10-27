@@ -12,6 +12,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const sharp = require('sharp');
+const mailer = require('./mailer');
 
 const UPLOAD_TYPE_ERROR = 'Only JPEG, PNG, and WEBP images are allowed';
 const INVALID_IMAGE_ERROR = "That file isn't a valid image.";
@@ -227,6 +228,32 @@ function memberForAdmin(row) {
     return { ...rest, has_portal: !!portal_password };
 }
 
+// Emails a member in the background. makeMessage gets { name, email } and returns a mailer template.
+function emailMember(memberId, makeMessage) {
+    if (!mailer.isConfigured()) return;
+    db.get(`SELECT name, email FROM members WHERE id = ?`, [memberId], (err, member) => {
+        if (err) return console.error('Error fetching member for email:', err.message);
+        if (member) mailer.sendInBackground(member.email, makeMessage(member));
+    });
+}
+
+// "2027-03-01T10:00" -> "1 March 2027 at 10:00", for emails (event dates are typed in local time)
+function formatEventDate(date) {
+    const text = String(date || '');
+    const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00` : text);
+    if (isNaN(parsed)) return text;
+    return parsed.toLocaleString('en-GB', { dateStyle: 'long', ...(text.includes('T') ? { timeStyle: 'short' } : {}) });
+}
+
+// After someone is marked present or late: thank them and send their certificate (once the event has begun).
+function emailCertificate(eventId, memberId) {
+    if (!mailer.isConfigured()) return;
+    db.get(`SELECT id, title, date FROM events WHERE id = ?`, [eventId], (err, event) => {
+        if (err || !event || !eventHasStarted(event.date)) return;
+        emailMember(memberId, m => mailer.templates.certificate({ name: m.name, event, code: certificateCode(event.id, memberId) }));
+    });
+}
+
 // Runs SQL statements one after another: [[sql, params], ...]. Calls done(err) after the last one or the first failure.
 function runInOrder(statements, done) {
     const [first, ...rest] = statements;
@@ -387,6 +414,7 @@ app.post('/members', verifyAdmin, (req, res) => {
             res.status(500).json({ error: 'Failed to add member' });
         } else {
             res.status(201).json({ id: this.lastID, name, email, phone, position: cleanPosition, position_rank: cleanRank, student_id, club_id, batch, department });
+            if (club_id) emailMember(this.lastID, m => mailer.templates.clubIdReady({ name: m.name, clubId: club_id }));
         }
     });
 });
@@ -534,6 +562,8 @@ app.put('/members/:id', verifyAdmin, (req, res) => {
                 res.status(500).json({ error: 'Failed to update member' });
             } else {
                 res.status(200).json({ id: memberId, name, email, phone, position, position_rank, student_id, club_id, batch, department });
+                // only the first club ID gets an email, not later corrections
+                if (club_id && !existing.club_id) emailMember(memberId, m => mailer.templates.clubIdReady({ name: m.name, clubId: club_id }));
             }
         });
     });
@@ -832,6 +862,7 @@ app.post('/attendance', verifyAdmin, (req, res) => {
             res.status(500).json({ error: 'Failed to add attendance' });
         } else {
             res.status(201).json({ id: this.lastID, member_id, event_id, status });
+            if (status !== 'absent') emailCertificate(event_id, member_id);
         }
 
     });
@@ -853,15 +884,21 @@ app.get('/events/:id/attendance', verifyAdmin, (req, res) => {
 app.put('/attendance/:id', verifyAdmin, (req, res) => {
     const { status } = req.body;
     if (!ATTENDANCE_STATUSES.includes(status)) return res.status(400).json({ error: 'status must be present, absent or late.' });
-    db.run(`UPDATE attendance SET status = ? WHERE id = ?`, [status, req.params.id], function (err) {
+    db.get(`SELECT member_id, event_id, status FROM attendance WHERE id = ?`, [req.params.id], (err, before) => {
         if (err) {
-            console.error('Error updating attendance:', err.message);
-            res.status(500).json({ error: 'Failed to update attendance' });
-        } else if (this.changes === 0) {
-            res.status(404).json({ error: 'Attendance record not found' });
-        } else {
-            res.status(200).json({ id: req.params.id, status });
+            console.error('Error fetching attendance:', err.message);
+            return res.status(500).json({ error: 'Failed to update attendance' });
         }
+        if (!before) return res.status(404).json({ error: 'Attendance record not found' });
+        db.run(`UPDATE attendance SET status = ? WHERE id = ?`, [status, req.params.id], (err) => {
+            if (err) {
+                console.error('Error updating attendance:', err.message);
+                return res.status(500).json({ error: 'Failed to update attendance' });
+            }
+            res.status(200).json({ id: req.params.id, status });
+            // absent -> present/late is when they first earn a certificate (present <-> late changes nothing)
+            if (before.status === 'absent' && status !== 'absent') emailCertificate(before.event_id, before.member_id);
+        });
     });
 });
 
@@ -1148,6 +1185,7 @@ app.put('/join-requests/:id', verifyAdmin, (req, res) => {
                 return res.status(500).json({ error: 'Failed to create member' });
             }
             updateStatus(this.lastID);
+            mailer.sendInBackground(request.email, mailer.templates.welcome({ name: request.name }));
         });
     });
 });
@@ -1548,6 +1586,7 @@ app.post('/events/:id/checkin', verifyAdmin, (req, res) => {
                         return res.status(500).json({ error: 'Check-in failed' });
                     }
                     res.status(200).json({ member, already: false });
+                    emailCertificate(event.id, member.id);
                 });
             });
         });
@@ -1583,6 +1622,7 @@ function registerForEvent(eventId, member, res) {
                     return res.status(500).json({ error: 'Registration failed' });
                 }
                 res.status(201).json({ name: member.name, already: false });
+                emailMember(member.id, m => mailer.templates.registered({ name: m.name, event, when: formatEventDate(event.date) }));
             });
         });
     });
@@ -1896,6 +1936,52 @@ app.post('/portal/logout-all', verifyMember, (req, res) => {
     });
 });
 
+// Forgot password: email a reset link. The reply is the same whether or not the club ID has an account,
+// so nobody can use this form to find out which club IDs exist.
+app.post('/portal/forgot', portalLimiter, async (req, res) => {
+    if (!mailer.isConfigured()) {
+        return res.status(503).json({ error: 'Password reset by email isn\'t available yet. Please ask a committee member to reset your login.' });
+    }
+    const sent = { message: 'If that club ID has a portal account, we\'ve emailed a reset link to the address the club has for you. Check your inbox (and spam folder).' };
+    try {
+        const member = await dbGet(`SELECT id, name, email, portal_password, portal_token_version FROM members WHERE club_id = ?`, [cleanId(req.body.club_id)]);
+        if (!member || !member.portal_password) return res.status(200).json(sent);
+        // tv makes the link single-use: resetting (or any password change) bumps the version and retires it
+        const token = jwt.sign({ kind: 'reset', id: member.id, tv: member.portal_token_version }, JWT_SECRET, { expiresIn: '1h' });
+        mailer.sendInBackground(member.email, mailer.templates.passwordReset({ name: member.name, link: mailer.siteUrl(`portal.html?reset=${token}`) }));
+        res.status(200).json(sent);
+    } catch (err) {
+        console.error('Error starting password reset:', err.message);
+        res.status(500).json({ error: 'Could not send the reset email' });
+    }
+});
+
+app.post('/portal/reset', portalLimiter, (req, res) => {
+    const passwordError = checkPassword(req.body.password);
+    if (passwordError) return res.status(400).json({ error: passwordError });
+    const expired = { error: 'This reset link has expired or was already used. Please ask for a new one.' };
+    jwt.verify(String(req.body.token || ''), JWT_SECRET, async (err, data) => {
+        if (err || data.kind !== 'reset') return res.status(400).json(expired);
+        try {
+            const member = await dbGet(`SELECT id, portal_token_version FROM members WHERE id = ? AND portal_password IS NOT NULL`, [data.id]);
+            if (!member || member.portal_token_version !== data.tv) return res.status(400).json(expired);
+            const hash = await bcrypt.hash(req.body.password, 10);
+            db.run(`UPDATE members SET portal_password = ?, portal_token_version = portal_token_version + 1, portal_last_login_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND portal_token_version = ?`, [hash, member.id, data.tv], function (err) {
+                if (err) {
+                    console.error('Error resetting member password:', err.message);
+                    return res.status(500).json({ error: 'Could not reset your password' });
+                }
+                if (this.changes === 0) return res.status(400).json(expired);
+                res.status(200).json({ token: signMemberToken({ id: member.id, portal_token_version: data.tv + 1 }) });
+            });
+        } catch (err) {
+            console.error('Error resetting member password:', err.message);
+            res.status(500).json({ error: 'Could not reset your password' });
+        }
+    });
+});
+
 app.post('/portal/events/:id/register', verifyMember, (req, res) => {
     db.get(`SELECT id, name FROM members WHERE id = ?`, [req.member.id], (err, member) => {
         if (err || !member) return res.status(500).json({ error: 'Registration failed' });
@@ -1960,6 +2046,28 @@ app.get('/export/:type', verifyAdmin, (req, res) => {
         // the BOM makes Excel read Bangla and other non-English text correctly
         res.send('﻿' + lines.join('\r\n'));
     });
+});
+
+// email: Settings shows whether Gmail is set up and can send a test message
+
+app.get('/email/status', verifyAdmin, (req, res) => {
+    res.status(200).json({ configured: mailer.isConfigured(), from: mailer.isConfigured() ? process.env.GMAIL_USER : null });
+});
+
+app.post('/email/test', verifyAdmin, async (req, res) => {
+    const invalid = checkFields(req.body, { to: { required: true, max: 150, email: true } });
+    if (invalid) return res.status(400).json({ error: invalid });
+    try {
+        await mailer.sendMail(req.body.to, mailer.templates.test());
+        res.status(200).json({ message: `Test email sent to ${req.body.to}` });
+    } catch (err) {
+        console.error('Test email failed:', err.message);
+        // Gmail's most common refusal: a normal password instead of an app password
+        const hint = /Username and Password not accepted|Invalid login|535/i.test(err.message)
+            ? 'Gmail refused the login. Check GMAIL_USER, and make sure GMAIL_APP_PASSWORD is an app password (not your normal Gmail password).'
+            : err.message;
+        res.status(502).json({ error: hint });
+    }
 });
 
 // database backups: a full copy of club.db, made once a day and on demand from Settings

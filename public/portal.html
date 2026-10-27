@@ -42,7 +42,33 @@
                             <input id="l-password" name="password" type="password" required autocomplete="current-password">
                         </div>
                         <button class="btn" type="submit">Log in</button>
-                        <p class="hint portal-hint">Forgot your password? Ask a committee member to reset your account, then set it up again.</p>
+                        <p class="hint portal-hint"><button type="button" class="link-button" id="forgot-link">Forgot your password?</button></p>
+                    </form>
+
+                    <form id="forgot-form" class="hidden" method="post" novalidate>
+                        <h2 class="portal-form-title">Forgot your password?</h2>
+                        <div class="form-message hidden" role="status"></div>
+                        <p class="meta">Enter your club ID. We'll email a reset link to the address the club has for you.</p>
+                        <div class="field">
+                            <label for="f-club">Club ID</label>
+                            <input id="f-club" name="club_id" required maxlength="30" placeholder="e.g. NDUBCC-001" autocomplete="username">
+                        </div>
+                        <button class="btn" type="submit">Email me a reset link</button>
+                        <p class="hint portal-hint">No email arriving, or your email address changed? Ask a committee member to reset your login.</p>
+                    </form>
+
+                    <form id="reset-form" class="hidden" method="post" novalidate>
+                        <h2 class="portal-form-title">Choose a new password</h2>
+                        <div class="form-message hidden" role="status"></div>
+                        <div class="field">
+                            <label for="r-password">New password <small>(8+ characters)</small></label>
+                            <input id="r-password" name="password" type="password" required minlength="8" autocomplete="new-password">
+                        </div>
+                        <div class="field">
+                            <label for="r-confirm">Repeat password</label>
+                            <input id="r-confirm" name="confirm" type="password" required minlength="8" autocomplete="new-password">
+                        </div>
+                        <button class="btn" type="submit">Save new password</button>
                     </form>
 
                     <form id="setup-form" class="hidden" method="post" novalidate>

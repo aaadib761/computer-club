@@ -26,13 +26,16 @@ const authSection = document.getElementById('auth');
 const dashboard = document.getElementById('dashboard');
 const loginForm = document.getElementById('login-form');
 const firstTimeForm = document.getElementById('setup-form');
+const forgotForm = document.getElementById('forgot-form');
+const resetForm = document.getElementById('reset-form');
+const AUTH_FORMS = { login: loginForm, setup: firstTimeForm, forgot: forgotForm, reset: resetForm };
 
 // ---------- logged out ----------
 
+// login and setup have tabs; forgot and reset are reached from a link and show no tab as selected
 function showTab(name) {
     document.querySelectorAll('.portal-tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === name));
-    loginForm.classList.toggle('hidden', name !== 'login');
-    firstTimeForm.classList.toggle('hidden', name !== 'setup');
+    Object.entries(AUTH_FORMS).forEach(([key, form]) => form.classList.toggle('hidden', key !== name));
 }
 document.querySelectorAll('.portal-tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
@@ -44,13 +47,13 @@ function showLoggedOut(notice) {
     if (notice) showMessage(loginForm.querySelector('.form-message'), 'error', notice);
 }
 
-// Sends one of the two forms; on success the server gives back a login token.
-function setupAuthForm(form, path, check) {
+// Sends a login, setup or reset form; on success the server gives back a login token.
+function setupAuthForm(form, path, check, extraFields = () => ({})) {
     const message = form.querySelector('.form-message');
     const button = form.querySelector('button[type="submit"]');
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const data = Object.fromEntries(new FormData(form));
+        const data = { ...Object.fromEntries(new FormData(form)), ...extraFields() };
         const problem = check(data);
         if (problem) return showMessage(message, 'error', problem);
         delete data.confirm;
@@ -70,12 +73,45 @@ function setupAuthForm(form, path, check) {
 }
 
 setupAuthForm(loginForm, '/portal/login', d => (!d.club_id.trim() || !d.password ? 'Please enter your club ID and password.' : null));
-setupAuthForm(firstTimeForm, '/portal/setup', d => {
-    if (!d.club_id.trim() || !d.student_id.trim() || !d.email.trim()) return 'Please fill in your club ID, student ID and email.';
+function checkNewPassword(d) {
     if (d.password.length < 8) return 'Your password must be at least 8 characters.';
     if (d.password !== d.confirm) return "The two passwords don't match.";
     return null;
+}
+setupAuthForm(firstTimeForm, '/portal/setup', d => {
+    if (!d.club_id.trim() || !d.student_id.trim() || !d.email.trim()) return 'Please fill in your club ID, student ID and email.';
+    return checkNewPassword(d);
 });
+
+// ---------- forgot password ----------
+
+document.getElementById('forgot-link').addEventListener('click', () => {
+    forgotForm.elements.club_id.value = loginForm.elements.club_id.value;
+    showTab('forgot');
+});
+
+forgotForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const message = forgotForm.querySelector('.form-message');
+    const clubId = forgotForm.elements.club_id.value.trim();
+    if (!clubId) return showMessage(message, 'error', 'Please enter your club ID.');
+    const button = forgotForm.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+        const result = await api('/portal/forgot', { method: 'POST', body: JSON.stringify({ club_id: clubId }) });
+        showMessage(message, 'success', result.message);
+    } catch (err) {
+        showMessage(message, 'error', err.message);
+    } finally {
+        button.disabled = false;
+    }
+});
+
+// the emailed link opens portal.html?reset=...; the token is taken out of the address bar
+// right away so it doesn't stay in the browser history
+const resetToken = new URLSearchParams(location.search).get('reset');
+if (resetToken) history.replaceState(null, '', location.pathname);
+setupAuthForm(resetForm, '/portal/reset', checkNewPassword, () => ({ token: resetToken }));
 
 // ---------- logged in ----------
 
@@ -233,4 +269,5 @@ document.getElementById('logout-all-btn').addEventListener('click', async () => 
     }
 });
 
-if (memberToken()) loadDashboard();
+if (resetToken) showTab('reset');
+else if (memberToken()) loadDashboard();

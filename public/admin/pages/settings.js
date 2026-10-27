@@ -117,6 +117,44 @@ document.querySelectorAll('[data-export]').forEach(button => {
     button.addEventListener('click', () => downloadFile(button, `/export/${button.dataset.export}`, 'export.csv'));
 });
 
+// ---------- email ----------
+
+const emailStatus = document.getElementById('email-status');
+const emailTestForm = document.getElementById('email-test-form');
+
+async function loadEmailStatus() {
+    try {
+        const status = await adminApi('/email/status');
+        if (status.configured) {
+            emailStatus.innerHTML = `✅ Email is on. Messages are sent from <b>${escapeHtml(status.from)}</b>.`;
+            emailTestForm.classList.remove('hidden');
+            emailTestForm.elements.to.value ||= status.from;
+        } else {
+            emailStatus.innerHTML = '⚠️ Email is off. To turn it on, add <b>GMAIL_USER</b> and <b>GMAIL_APP_PASSWORD</b> to the server\'s <b>.env</b> file (the steps are in <b>.env.example</b>), then restart the server.';
+        }
+    } catch (err) {
+        emailStatus.textContent = err.message;
+    }
+}
+
+emailTestForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const to = emailTestForm.elements.to.value.trim();
+    if (!to || !emailTestForm.elements.to.checkValidity()) return toast('Please enter a valid email address.', 'error');
+    const button = emailTestForm.querySelector('button');
+    button.disabled = true;
+    button.textContent = 'Sending…';
+    try {
+        const result = await adminApi('/email/test', { method: 'POST', body: { to } });
+        toast(result.message);
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Send test email';
+    }
+});
+
 const backupsList = document.getElementById('backups');
 const backupNowBtn = document.getElementById('backup-now-btn');
 
@@ -235,4 +273,5 @@ if (me) {
     loadClubInfo();
     loadAdmins();
     loadBackups();
+    loadEmailStatus();
 }
