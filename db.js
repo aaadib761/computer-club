@@ -152,6 +152,12 @@ db.serialize(() => {
         last_login_at: 'DATETIME',
         password_changed_at: 'DATETIME',
         role: "TEXT NOT NULL DEFAULT 'owner'",  // owner, editor or checkin; admins from before roles existed are owners
+        // 2-step verification (see twofactor.js); secrets are stored encrypted
+        totp_secret: 'TEXT',          // set once 2-step login is turned on
+        totp_pending: 'TEXT',         // during setup, until the first code is confirmed
+        totp_enabled_at: 'DATETIME',
+        totp_last_step: 'INTEGER',    // the last code's time window, so a code can't be used twice
+        recovery_codes: 'TEXT',       // JSON list of hashed one-time recovery codes
     });
     addMissingColumns('members', {
         student_id: 'TEXT',

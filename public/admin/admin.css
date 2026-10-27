@@ -218,6 +218,17 @@ dialog.modal h2 { font-size: 1.25rem; margin-bottom: 16px; }
     background: var(--bg);
 }
 .field .hint { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+/* 2-step login */
+.code-input { font-size: 1.3rem !important; letter-spacing: 0.15em; text-align: center; font-variant-numeric: tabular-nums; }
+.twofa-card { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; margin-top: 16px; }
+.twofa-steps { padding-left: 20px; margin: 0 0 8px; }
+.twofa-steps li { margin-bottom: 4px; }
+.twofa-qr { text-align: center; margin: 8px 0; }
+.twofa-qr img { width: 200px; height: 200px; background: #fff; padding: 6px; border-radius: 8px; border: 1px solid var(--line); }
+.twofa-secret { display: inline-block; margin-top: 4px; font-size: 0.95rem; letter-spacing: 0.05em; word-break: break-all; user-select: all; }
+.recovery-codes { columns: 2; padding-left: 28px; margin: 12px 0; font-family: ui-monospace, Consolas, monospace; font-size: 1rem; }
+.recovery-codes li { margin-bottom: 6px; }
+
 /* fees page */
 @media (min-width: 900px) { .stat-cards.stat-cards-4 { grid-template-columns: repeat(4, 1fr); } }
 .fee-grid { display: grid; gap: 16px; margin-bottom: 16px; }

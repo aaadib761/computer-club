@@ -125,6 +125,14 @@
                     <button class="btn" type="submit">Change password</button>
                 </form>
             </div>
+
+            <div class="card twofa-card">
+                <div>
+                    <h3 style="margin: 0;">🔐 2-step login <span id="twofa-badge"></span></h3>
+                    <p class="meta" id="twofa-text" style="margin: 4px 0 0;">Checking…</p>
+                </div>
+                <div class="btn-group" id="twofa-actions"></div>
+            </div>
         </section>
 
         <!-- appearance -->
@@ -203,6 +211,62 @@
             </div>
         </section>
     </main>
+
+    <!-- 2-step login: set up (scan, then confirm a code) -->
+    <dialog class="modal" id="twofa-setup-dialog">
+        <form id="twofa-setup-form" method="post" novalidate>
+            <h2>Turn on 2-step login</h2>
+            <div class="form-message hidden" role="status"></div>
+            <ol class="twofa-steps">
+                <li>Install an authenticator app on your phone, like <b>Google Authenticator</b>, <b>Microsoft Authenticator</b> or <b>Authy</b>.</li>
+                <li>In the app, add an account and scan this QR code:</li>
+            </ol>
+            <div class="twofa-qr"><img id="twofa-qr" alt="QR code for your authenticator app"></div>
+            <p class="hint" style="text-align: center;">Can't scan? Type this key into the app instead:<br><code id="twofa-secret" class="twofa-secret"></code></p>
+            <div class="field">
+                <label for="twofa-code">3. Type the 6-digit code the app shows</label>
+                <input id="twofa-code" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="7" class="code-input" placeholder="123 456">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn">Turn on</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- shown once, right after turning it on (or making new codes) -->
+    <dialog class="modal" id="recovery-dialog">
+        <form method="dialog">
+            <h2>Save your recovery codes</h2>
+            <p class="meta">If you lose your phone, each of these codes lets you log in <b>once</b>. Save them somewhere safe, like a password manager or a printed sheet. <b>They won't be shown again.</b></p>
+            <ol id="recovery-codes" class="recovery-codes"></ol>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" id="recovery-copy">Copy</button>
+                <button type="button" class="btn btn-ghost" id="recovery-download">Download</button>
+                <button class="btn">I saved them</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- turning it off, or making new recovery codes, needs a code (and the password to turn off) -->
+    <dialog class="modal" id="twofa-confirm-dialog">
+        <form id="twofa-confirm-form" method="post" novalidate>
+            <h2 id="twofa-confirm-title">Turn off 2-step login</h2>
+            <div class="form-message hidden" role="status"></div>
+            <div class="field" id="twofa-confirm-password-field">
+                <label for="twofa-confirm-password">Your password</label>
+                <input id="twofa-confirm-password" name="password" type="password" autocomplete="current-password">
+            </div>
+            <div class="field">
+                <label for="twofa-confirm-code" id="twofa-confirm-code-label">Code from your app (or a recovery code)</label>
+                <input id="twofa-confirm-code" name="code" required autocomplete="one-time-code" maxlength="20" class="code-input" placeholder="123 456">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn" id="twofa-confirm-submit">Turn off</button>
+            </div>
+        </form>
+    </dialog>
 
     <dialog class="modal" id="admin-dialog">
         <form id="admin-form" novalidate>

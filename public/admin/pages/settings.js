@@ -79,6 +79,122 @@ passwordForm.addEventListener('submit', (e) => {
     });
 });
 
+// ---------- 2-step login ----------
+
+const twofaText = document.getElementById('twofa-text');
+const twofaBadge = document.getElementById('twofa-badge');
+const twofaActions = document.getElementById('twofa-actions');
+const twofaSetupDialog = document.getElementById('twofa-setup-dialog');
+const twofaSetupForm = document.getElementById('twofa-setup-form');
+const recoveryDialog = document.getElementById('recovery-dialog');
+const confirmDialog = document.getElementById('twofa-confirm-dialog');
+const confirmForm = document.getElementById('twofa-confirm-form');
+let confirmMode = 'disable';   // or 'codes' (make new recovery codes)
+let shownCodes = [];
+
+async function loadTwoFactor() {
+    try {
+        const status = await adminApi('/admin/2fa');
+        twofaBadge.innerHTML = status.enabled ? '<span class="badge badge-approved">On</span>' : '<span class="badge badge-pending">Off</span>';
+        if (status.enabled) {
+            const left = status.recovery_codes_left;
+            twofaText.textContent = `Logging in needs your password and a code from your phone. ${left} recovery code${left === 1 ? '' : 's'} left${left <= 3 ? ', so consider making new ones' : ''}.`;
+            twofaActions.innerHTML = `
+                <button type="button" class="btn btn-sm btn-ghost" data-twofa="codes">New recovery codes</button>
+                <button type="button" class="btn btn-sm btn-danger" data-twofa="disable">Turn off</button>`;
+        } else {
+            twofaText.textContent = 'Protects your account even if someone learns your password: logging in also needs a code from an app on your phone.';
+            twofaActions.innerHTML = '<button type="button" class="btn btn-sm" data-twofa="setup">Turn on</button>';
+        }
+    } catch (err) {
+        twofaText.textContent = err.message;
+    }
+}
+
+twofaActions.addEventListener('click', async (e) => {
+    const action = e.target.closest('[data-twofa]')?.dataset.twofa;
+    if (action === 'setup') {
+        try {
+            const { qr, secret } = await adminApi('/admin/2fa/setup', { method: 'POST' });
+            document.getElementById('twofa-qr').src = qr;
+            document.getElementById('twofa-secret').textContent = secret;
+            twofaSetupForm.reset();
+            openModal(twofaSetupDialog);
+            twofaSetupForm.elements.code.focus();
+        } catch (err) {
+            toast(err.message, 'error');
+        }
+    }
+    if (action === 'disable' || action === 'codes') {
+        confirmMode = action;
+        const disabling = action === 'disable';
+        document.getElementById('twofa-confirm-title').textContent = disabling ? 'Turn off 2-step login' : 'Make new recovery codes';
+        document.getElementById('twofa-confirm-password-field').classList.toggle('hidden', !disabling);
+        document.getElementById('twofa-confirm-code-label').textContent = disabling ? 'Code from your app (or a recovery code)' : 'Code from your app';
+        document.getElementById('twofa-confirm-submit').textContent = disabling ? 'Turn off' : 'Make new codes';
+        confirmForm.reset();
+        openModal(confirmDialog);
+    }
+});
+
+twofaSetupForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = twofaSetupForm.elements.code.value.trim();
+    if (!code) return showMessage(twofaSetupForm.querySelector('.form-message'), 'error', 'Type the 6-digit code from your app.');
+    submitting(twofaSetupForm, async () => {
+        const { recovery_codes } = await adminApi('/admin/2fa/enable', { method: 'POST', body: { code } });
+        twofaSetupDialog.close();
+        toast('2-step login is on');
+        showRecoveryCodes(recovery_codes);
+        loadTwoFactor();
+    });
+});
+
+confirmForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const { password, code } = readForm(confirmForm);
+    const message = confirmForm.querySelector('.form-message');
+    if (!code || (confirmMode === 'disable' && !password)) return showMessage(message, 'error', 'Please fill in both fields.');
+    submitting(confirmForm, async () => {
+        if (confirmMode === 'disable') {
+            await adminApi('/admin/2fa/disable', { method: 'POST', body: { password, code } });
+            toast('2-step login is off');
+        } else {
+            const { recovery_codes } = await adminApi('/admin/2fa/recovery-codes', { method: 'POST', body: { code } });
+            showRecoveryCodes(recovery_codes);
+        }
+        confirmDialog.close();
+        loadTwoFactor();
+    });
+});
+
+function showRecoveryCodes(codes) {
+    shownCodes = codes;
+    document.getElementById('recovery-codes').innerHTML = codes.map(c => `<li>${escapeHtml(c)}</li>`).join('');
+    recoveryDialog.showModal();
+}
+
+const recoveryText = () => `NDUB Computer Club admin recovery codes for ${me.username}\n` +
+    `Each code works once. Made ${new Date().toLocaleDateString('en-GB')}.\n\n${shownCodes.join('\n')}\n`;
+
+document.getElementById('recovery-copy').addEventListener('click', async () => {
+    try {
+        await navigator.clipboard.writeText(recoveryText());
+        toast('Recovery codes copied');
+    } catch {
+        showCopyBox(shownCodes.join('  '));
+    }
+});
+
+document.getElementById('recovery-download').addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([recoveryText()], { type: 'text/plain' }));
+    const link = Object.assign(document.createElement('a'), { href: url, download: `ndubcc-recovery-codes-${me.username}.txt` });
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
 // ---------- appearance ----------
 
 const darkToggle = document.getElementById('dark-toggle');
@@ -228,7 +344,8 @@ async function loadAdmins() {
             <div class="row">
                 <div class="avatar" aria-hidden="true">${escapeHtml(initials(a.username))}</div>
                 <div class="row-main">
-                    <h3>${escapeHtml(a.username)} ${a.id === me.id ? '<span class="badge badge-role">you</span>' : ''}</h3>
+                    <h3>${escapeHtml(a.username)} ${a.id === me.id ? '<span class="badge badge-role">you</span>' : ''}
+                        ${a.two_factor ? '<span class="badge badge-approved" title="Uses 2-step login">2-step</span>' : ''}</h3>
                     <p class="meta">
                         Admin since ${formatDate(a.created_at, { isUtc: true, withTime: false })}
                         · Last login: ${when(a.last_login_at)}
@@ -237,6 +354,7 @@ async function loadAdmins() {
                 </div>
                 <div class="btn-group">
                     ${roleControl(a)}
+                    ${a.two_factor && a.id !== me.id ? `<button class="btn btn-sm btn-ghost" data-reset-2fa="${escapeHtml(a.username)}">Reset 2-step</button>` : ''}
                     ${a.id === me.id ? '' : `<button class="btn btn-sm btn-danger" data-username="${escapeHtml(a.username)}">Remove</button>`}
                 </div>
             </div>`).join('');
@@ -244,6 +362,25 @@ async function loadAdmins() {
         adminsList.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
     }
 }
+
+// an admin lost their phone and recovery codes: turn their 2-step login off so they can set it up again
+adminsList.addEventListener('click', async (e) => {
+    const button = e.target.closest('button[data-reset-2fa]');
+    if (!button) return;
+    const username = button.dataset.reset2fa;
+    if (!(await confirmBox({
+        title: `Reset ${username}'s 2-step login?`,
+        message: 'Only do this if they lost their phone and their recovery codes, and you are sure it is really them asking. They will be logged out and can log in with just their password, then turn it on again.',
+        confirmText: 'Reset 2-step',
+    }))) return;
+    try {
+        await adminApi(`/admin/${encodeURIComponent(username)}/2fa`, { method: 'DELETE' });
+        toast(`${username}'s 2-step login was reset`);
+        loadAdmins();
+    } catch (err) {
+        toast(err.message, 'error');
+    }
+});
 
 adminsList.addEventListener('click', async (e) => {
     const button = e.target.closest('button[data-username]');
@@ -299,6 +436,8 @@ adminForm.addEventListener('submit', (e) => {
         loadAdmins();
     });
 });
+
+if (me) loadTwoFactor();
 
 // everything except your own account and appearance is for owners only
 if (me && me.role === 'owner') {

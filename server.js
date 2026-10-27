@@ -14,6 +14,7 @@ const fs = require('fs');
 const sharp = require('sharp');
 const mailer = require('./mailer');
 const { passwordProblem, LoginLockout } = require('./security');
+const twofactor = require('./twofactor');
 
 const UPLOAD_TYPE_ERROR = 'Only JPEG, PNG, and WEBP images are allowed';
 const INVALID_IMAGE_ERROR = "That file isn't a valid image.";
@@ -412,6 +413,10 @@ const ACTIVITY = {
     'PUT /admin/password': ['account', 'Changed own password'],
     'PUT /admin/username': ['account', 'Changed own username'],
     'POST /admin/logout-all': ['account', 'Logged out everywhere'],
+    'POST /admin/2fa/enable': ['account', 'Turned on 2-step login'],
+    'POST /admin/2fa/disable': ['account', 'Turned off 2-step login'],
+    'POST /admin/2fa/recovery-codes': ['account', 'Made new recovery codes'],
+    'DELETE /admin/:username/2fa': ['admins', 'Reset 2-step login'],
     // reading these is worth knowing about: they take a copy of members' data
     'GET /export/:type': ['data', 'Exported data'],
     'POST /backups': ['data', 'Made a backup'],
@@ -1163,14 +1168,206 @@ app.post('/admin/login', loginLimiter, (req, res) => {
                 return res.status(429).json({ error: lockedMessage(adminLockout.minutesLeft(username)) });
             }
             res.status(401).json({ error: 'Invalid username or password' });
+        } else if (rows.totp_enabled_at) {
+            // right password, but 2-step login is on: no login yet, just a 5-minute ticket for the code step.
+            // The failure count isn't reset until the code is right too.
+            const ticket = jwt.sign({ kind: '2fa', id: rows.id, tv: rows.token_version || 0 }, JWT_SECRET, { expiresIn: '5m' });
+            res.status(200).json({ twoFactor: true, ticket });
         } else {
-            adminLockout.succeed(username);
-            db.run(`UPDATE admins SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`, [rows.id], (err) => {
-                if (err) console.error('Error saving last login:', err.message);
-            });
-            recordActivity(rows, 'account', 'Logged in');
-            res.status(200).json({ token: signAdminToken(rows) });
+            finishAdminLogin(rows, res);
         }
+    });
+});
+
+function finishAdminLogin(admin, res, details) {
+    adminLockout.succeed(admin.username);
+    db.run(`UPDATE admins SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`, [admin.id], (err) => {
+        if (err) console.error('Error saving last login:', err.message);
+    });
+    recordActivity(admin, 'account', 'Logged in', details);
+    res.status(200).json({ token: signAdminToken(admin) });
+}
+
+// ---------- 2-step verification (authenticator app codes) ----------
+
+// wrong codes also count toward the account lockout; this limits code guessing per IP on top of that
+const twoFactorLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: 'Too many tries. Please wait a few minutes and try again.' },
+});
+
+// Checks a 6-digit app code or a recovery code for this admin row. On success it saves that the code
+// was used (so it can't be used again) and calls done(null, { recovery: true/false, left }).
+// done(null, null) means the code was wrong; done(err) means the secret couldn't be read.
+function useSecondFactor(admin, code, done) {
+    const secret = twofactor.decryptSecret(admin.totp_secret, JWT_SECRET);
+    if (!secret) return done(new Error('unreadable'));
+    const step = twofactor.checkCode(secret, code, admin.totp_last_step ?? -1);
+    if (step !== null) {
+        // only one request can claim this time window, even if two arrive at once
+        return db.run(`UPDATE admins SET totp_last_step = ? WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)`,
+            [step, admin.id, step], function (err) {
+                if (err) return done(err);
+                done(null, this.changes ? { recovery: false } : null);
+            });
+    }
+    let hashes = [];
+    try { hashes = JSON.parse(admin.recovery_codes || '[]'); } catch { /* treat as none */ }
+    const left = twofactor.useRecoveryCode(hashes, code);
+    if (!left) return done(null, null);
+    db.run(`UPDATE admins SET recovery_codes = ? WHERE id = ? AND recovery_codes = ?`, [JSON.stringify(left), admin.id, admin.recovery_codes], function (err) {
+        if (err) return done(err);
+        done(null, this.changes ? { recovery: true, left: left.length } : null);
+    });
+}
+
+const UNREADABLE_2FA = 'Your 2-step login can\'t be checked (the server\'s secret key changed). Ask an owner to reset your 2-step login.';
+
+// Step 2 of logging in: the ticket from step 1 plus a code from the app (or a recovery code).
+app.post('/admin/login/2fa', loginLimiter, (req, res) => {
+    const expired = { error: 'This login took too long. Please enter your password again.' };
+    jwt.verify(String(req.body.ticket || ''), JWT_SECRET, JWT_VERIFY_OPTIONS, (err, ticket) => {
+        if (err || ticket.kind !== '2fa') return res.status(401).json(expired);
+        db.get(`SELECT * FROM admins WHERE id = ?`, [ticket.id], (err, admin) => {
+            if (err) {
+                console.error('Error fetching admin:', err.message);
+                return res.status(500).json({ error: 'Could not log in' });
+            }
+            // a password change or "log out everywhere" since step 1 also ends this ticket
+            if (!admin || !admin.totp_enabled_at || (ticket.tv || 0) !== admin.token_version) return res.status(401).json(expired);
+            const locked = adminLockout.minutesLeft(admin.username);
+            if (locked) return res.status(429).json({ error: lockedMessage(locked) });
+
+            useSecondFactor(admin, req.body.code, (err, result) => {
+                if (err && err.message === 'unreadable') return res.status(500).json({ error: UNREADABLE_2FA });
+                if (err) {
+                    console.error('Error checking 2-step code:', err.message);
+                    return res.status(500).json({ error: 'Could not log in' });
+                }
+                if (!result) {
+                    recordActivity(admin, 'account', 'Failed 2-step code');
+                    if (adminLockout.fail(admin.username)) {
+                        recordActivity(admin, 'account', 'Account locked', `after ${adminLockout.maxFailures} wrong passwords or codes in a row`);
+                        return res.status(429).json({ error: lockedMessage(adminLockout.minutesLeft(admin.username)) });
+                    }
+                    return res.status(401).json({ error: 'That code isn\'t right. Check the newest code in your app (they change every 30 seconds).' });
+                }
+                finishAdminLogin(admin, res, result.recovery ? `with a recovery code (${result.left} left)` : 'with 2-step code');
+            });
+        });
+    });
+});
+
+// Your own 2-step status, for Settings.
+app.get('/admin/2fa', verifyAnyAdmin, (req, res) => {
+    db.get(`SELECT totp_enabled_at, recovery_codes FROM admins WHERE id = ?`, [req.user.id], (err, row) => {
+        if (err || !row) return res.status(500).json({ error: 'Could not load your 2-step status' });
+        let left = 0;
+        try { left = JSON.parse(row.recovery_codes || '[]').length; } catch { /* none */ }
+        res.status(200).json({ enabled: !!row.totp_enabled_at, enabled_at: row.totp_enabled_at, recovery_codes_left: left });
+    });
+});
+
+// Setup, part 1: a new secret as a QR code to scan. Nothing changes until part 2 confirms a code.
+app.post('/admin/2fa/setup', verifyAnyAdmin, twoFactorLimiter, (req, res) => {
+    db.get(`SELECT totp_enabled_at FROM admins WHERE id = ?`, [req.user.id], async (err, row) => {
+        if (err || !row) return res.status(500).json({ error: 'Could not start the setup' });
+        if (row.totp_enabled_at) return res.status(409).json({ error: '2-step login is already on.' });
+        const secret = twofactor.newSecret();
+        const uri = twofactor.otpauthUri(secret, req.user.username);
+        try {
+            const qr = await QRCode.toDataURL(uri, { margin: 1, width: 220, errorCorrectionLevel: 'M' });
+            db.run(`UPDATE admins SET totp_pending = ? WHERE id = ?`, [twofactor.encryptSecret(secret, JWT_SECRET), req.user.id], (err) => {
+                if (err) return res.status(500).json({ error: 'Could not start the setup' });
+                // the secret is shown too, for typing into an app when scanning isn't possible
+                res.status(200).json({ qr, secret: secret.match(/.{1,4}/g).join(' ') });
+            });
+        } catch (err) {
+            console.error('Error making 2-step QR code:', err.message);
+            res.status(500).json({ error: 'Could not make the QR code' });
+        }
+    });
+});
+
+// Setup, part 2: the first code from the app proves it's set up right; then it's switched on
+// and the recovery codes are shown, this one time only.
+app.post('/admin/2fa/enable', verifyAnyAdmin, twoFactorLimiter, (req, res) => {
+    db.get(`SELECT totp_pending, totp_enabled_at FROM admins WHERE id = ?`, [req.user.id], (err, row) => {
+        if (err || !row) return res.status(500).json({ error: 'Could not turn on 2-step login' });
+        if (row.totp_enabled_at) return res.status(409).json({ error: '2-step login is already on.' });
+        const secret = twofactor.decryptSecret(row.totp_pending, JWT_SECRET);
+        if (!secret) return res.status(400).json({ error: 'Please start the setup again.' });
+        const step = twofactor.checkCode(secret, req.body.code);
+        if (step === null) return res.status(400).json({ error: 'That code isn\'t right. Type the 6-digit code your app shows now.' });
+        const { codes, hashes } = twofactor.newRecoveryCodes();
+        db.run(`UPDATE admins SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled_at = CURRENT_TIMESTAMP,
+            totp_last_step = ?, recovery_codes = ? WHERE id = ? AND totp_enabled_at IS NULL`,
+            [step, JSON.stringify(hashes), req.user.id], function (err) {
+                if (err) return res.status(500).json({ error: 'Could not turn on 2-step login' });
+                if (!this.changes) return res.status(409).json({ error: '2-step login is already on.' });
+                res.status(200).json({ recovery_codes: codes });
+            });
+    });
+});
+
+// Turning it off needs the password and a code, so someone at an unlocked computer can't do it.
+app.post('/admin/2fa/disable', verifyAnyAdmin, twoFactorLimiter, (req, res) => {
+    db.get(`SELECT * FROM admins WHERE id = ?`, [req.user.id], async (err, admin) => {
+        if (err || !admin) return res.status(500).json({ error: 'Could not turn off 2-step login' });
+        if (!admin.totp_enabled_at) return res.status(409).json({ error: '2-step login is already off.' });
+        if (typeof req.body.password !== 'string' || !(await bcrypt.compare(req.body.password, admin.password))) {
+            return res.status(401).json({ error: 'Your password is wrong.' });
+        }
+        useSecondFactor(admin, req.body.code, (err, result) => {
+            if (err && err.message === 'unreadable') return res.status(500).json({ error: UNREADABLE_2FA });
+            if (err) return res.status(500).json({ error: 'Could not turn off 2-step login' });
+            if (!result) return res.status(401).json({ error: 'That code isn\'t right.' });
+            clearTwoFactor(admin.id, false, (err) => {
+                if (err) return res.status(500).json({ error: 'Could not turn off 2-step login' });
+                res.status(200).json({ message: '2-step login is off' });
+            });
+        });
+    });
+});
+
+// New recovery codes (the old ones stop working), e.g. when only a few are left.
+app.post('/admin/2fa/recovery-codes', verifyAnyAdmin, twoFactorLimiter, (req, res) => {
+    db.get(`SELECT * FROM admins WHERE id = ?`, [req.user.id], (err, admin) => {
+        if (err || !admin) return res.status(500).json({ error: 'Could not make new codes' });
+        if (!admin.totp_enabled_at) return res.status(409).json({ error: 'Turn on 2-step login first.' });
+        // only an app code here: a recovery code shouldn't be able to make more recovery codes
+        const secret = twofactor.decryptSecret(admin.totp_secret, JWT_SECRET);
+        if (!secret) return res.status(500).json({ error: UNREADABLE_2FA });
+        const step = twofactor.checkCode(secret, req.body.code, admin.totp_last_step ?? -1);
+        if (step === null) return res.status(401).json({ error: 'That code isn\'t right. Use the 6-digit code from your app.' });
+        const { codes, hashes } = twofactor.newRecoveryCodes();
+        db.run(`UPDATE admins SET recovery_codes = ?, totp_last_step = ? WHERE id = ?`, [JSON.stringify(hashes), step, admin.id], (err) => {
+            if (err) return res.status(500).json({ error: 'Could not make new codes' });
+            res.status(200).json({ recovery_codes: codes });
+        });
+    });
+});
+
+function clearTwoFactor(adminId, logOut, done) {
+    db.run(`UPDATE admins SET totp_secret = NULL, totp_pending = NULL, totp_enabled_at = NULL, totp_last_step = NULL,
+        recovery_codes = NULL${logOut ? ', token_version = token_version + 1' : ''} WHERE id = ?`, [adminId], done);
+}
+
+// Owner: another admin lost their phone and their recovery codes. Turns their 2-step login off and
+// logs them out; they log in with just the password and can set it up again.
+app.delete('/admin/:username/2fa', verifyOwner, (req, res) => {
+    if (req.params.username === req.user.username) {
+        return res.status(400).json({ error: 'To turn off your own 2-step login, use "Turn off" with your password and a code.' });
+    }
+    db.get(`SELECT id, totp_enabled_at FROM admins WHERE username = ?`, [req.params.username], (err, admin) => {
+        if (err) return res.status(500).json({ error: 'Failed to reset 2-step login' });
+        if (!admin) return res.status(404).json({ error: 'Admin not found' });
+        if (!admin.totp_enabled_at) return res.status(409).json({ error: `${req.params.username} doesn't use 2-step login.` });
+        clearTwoFactor(admin.id, true, (err) => {
+            if (err) return res.status(500).json({ error: 'Failed to reset 2-step login' });
+            res.status(200).json({ message: '2-step login reset' });
+        });
     });
 });
 
@@ -1253,7 +1450,8 @@ app.post('/admin/logout-all', verifyAnyAdmin, (req, res) => {
 });
 
 app.get('/admins', verifyOwner, (req, res) => {
-    const query = `SELECT id, username, role, created_at, last_login_at, password_changed_at FROM admins ORDER BY created_at ASC`;
+    const query = `SELECT id, username, role, created_at, last_login_at, password_changed_at,
+        totp_enabled_at IS NOT NULL AS two_factor FROM admins ORDER BY created_at ASC`;
     db.all(query, [], (err, rows) => {
         if (err) {
             console.error('Error fetching admins:', err.message);

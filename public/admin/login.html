@@ -30,6 +30,19 @@
                 </div>
                 <button class="btn" type="submit">Log in</button>
             </form>
+
+            <!-- step 2, only for admins who turned on 2-step login -->
+            <form id="code-form" class="hidden" method="post" novalidate>
+                <div class="form-message hidden" role="status"></div>
+                <p class="meta" style="text-align: left;">Open your authenticator app and type the 6-digit code for <b>NDUB Computer Club</b>.</p>
+                <div class="field">
+                    <label for="code">Code</label>
+                    <input id="code" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="20" class="code-input" placeholder="123 456">
+                    <p class="hint">Lost your phone? Type one of your recovery codes instead (like abcd-efgh-jkmn).</p>
+                </div>
+                <button class="btn" type="submit">Verify</button>
+                <p style="margin: 12px 0 0;"><button type="button" class="link-button" id="code-back">&larr; Use a different account</button></p>
+            </form>
             <p style="margin: 16px 0 0;"><a href="../index.html">&larr; Back to website</a></p>
         </div>
     </main>
