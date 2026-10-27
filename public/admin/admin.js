@@ -106,6 +106,7 @@ async function adminApi(path, { method = 'GET', body } = {}) {
 const ADMIN_PAGES = [
     { href: 'index.html', label: 'Dashboard', icon: '🏠' },
     { href: 'members.html', label: 'Members', icon: '👥' },
+    { href: 'fees.html', label: 'Fees', icon: '💰' },
     { href: 'events.html', label: 'Events', icon: '📅', checkin: true },
     { href: 'announcements.html', label: 'Announcements', icon: '📢' },
     { href: 'about.html', label: 'About & Advisors', icon: '🏫' },

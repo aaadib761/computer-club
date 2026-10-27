@@ -218,6 +218,77 @@ dialog.modal h2 { font-size: 1.25rem; margin-bottom: 16px; }
     background: var(--bg);
 }
 .field .hint { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+/* fees page */
+@media (min-width: 900px) { .stat-cards.stat-cards-4 { grid-template-columns: repeat(4, 1fr); } }
+.fee-grid { display: grid; gap: 16px; margin-bottom: 16px; }
+@media (min-width: 900px) { .fee-grid { grid-template-columns: 1fr 1fr; } }
+.fee-heading { font-size: 1.1rem; margin: 0 0 2px; }
+.fee-breakdown { display: grid; gap: 2px; }
+/* each group is a button: the whole row is the click target, not just the bar */
+.fee-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) 2fr auto;
+    gap: 12px;
+    align-items: center;
+    width: 100%;
+    padding: 8px 6px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    font: inherit;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+}
+.fee-row:hover, .fee-row:focus-visible { background: var(--bg-soft); }
+.fee-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.fee-row-count { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fee-row-count small { color: var(--muted); margin-left: 4px; }
+.fee-meter { height: 8px; border-radius: 4px; background: var(--bg-soft); overflow: hidden; }
+.fee-row:hover .fee-meter { background: var(--line); }
+.fee-meter span { display: block; height: 100%; border-radius: 4px; background: var(--orange); }
+
+/* payments per month: one hue, bars grow from a shared baseline, 2px gaps between them */
+.month-chart {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 2px;
+    height: 160px;
+    margin-top: 20px;
+    border-bottom: 1px solid var(--line);
+}
+.month-col { position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; outline: none; }
+.month-bar { width: min(28px, 70%); border-radius: 4px 4px 0 0; background: var(--orange); }
+.month-col:hover .month-bar, .month-col:focus-visible .month-bar { filter: brightness(0.88); }
+.month-value { font-size: 0.8rem; font-weight: 600; color: var(--ink); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+/* the tooltip: the whole column (taller than the bar) is the hover target */
+.month-col::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--ink);
+    color: var(--bg);
+    font-size: 0.8rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s;
+    z-index: 2;
+}
+.month-col:first-child::after { left: 0; transform: none; }
+.month-col:last-child::after { left: auto; right: 0; transform: none; }
+.month-col:hover::after, .month-col:focus-visible::after { opacity: 1; }
+.month-labels { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; margin-top: 6px; text-align: center; font-size: 0.75rem; color: var(--muted); }
+.month-table { margin-top: 12px; font-size: 0.9rem; }
+.month-table summary { cursor: pointer; color: var(--muted); }
+.month-table table { border-collapse: collapse; margin-top: 8px; }
+.month-table th, .month-table td { text-align: left; padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); }
+.month-table td:last-child { font-variant-numeric: tabular-nums; }
+
 /* activity log */
 .activity-day { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 18px 0 6px; }
 .activity-day:first-child { margin-top: 0; }
