@@ -85,35 +85,79 @@ const darkToggle = document.getElementById('dark-toggle');
 darkToggle.checked = document.body.classList.contains('dark');
 darkToggle.addEventListener('change', () => setDarkMode(darkToggle.checked));
 
-// ---------- export ----------
+// ---------- export and backups ----------
+
+// Downloads a file from an admin-only URL (a plain link can't send the login token).
+async function downloadFile(button, url, fallbackName) {
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Preparing…';
+    try {
+        const admin = currentAdmin();
+        if (!admin) return logout('expired');
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${admin.token}` } });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Download failed');
+        const name = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || fallbackName;
+        const blobUrl = URL.createObjectURL(await res.blob());
+        const link = Object.assign(document.createElement('a'), { href: blobUrl, download: name });
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        toast(`Downloaded ${name}`);
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = label;
+    }
+}
 
 document.querySelectorAll('[data-export]').forEach(button => {
-    button.addEventListener('click', async () => {
-        const label = button.textContent;
-        button.disabled = true;
-        button.textContent = 'Preparing…';
-        try {
-            const admin = currentAdmin();
-            if (!admin) return logout('expired');
-            const res = await fetch(`/export/${button.dataset.export}`, {
-                headers: { Authorization: `Bearer ${admin.token}` },
-            });
-            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export failed');
-            const name = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || 'export.csv';
-            const url = URL.createObjectURL(await res.blob());
-            const link = Object.assign(document.createElement('a'), { href: url, download: name });
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-            toast(`Downloaded ${name}`);
-        } catch (err) {
-            toast(err.message, 'error');
-        } finally {
-            button.disabled = false;
-            button.textContent = label;
-        }
-    });
+    button.addEventListener('click', () => downloadFile(button, `/export/${button.dataset.export}`, 'export.csv'));
+});
+
+const backupsList = document.getElementById('backups');
+const backupNowBtn = document.getElementById('backup-now-btn');
+
+function formatSize(bytes) {
+    return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function loadBackups() {
+    try {
+        const backups = await adminApi('/backups');
+        backupsList.innerHTML = backups.length ? backups.map((b, i) => `
+            <div class="row">
+                <div class="avatar" aria-hidden="true">DB</div>
+                <div class="row-main">
+                    <h3>${formatDate(b.created_at, { isUtc: true })} ${i === 0 ? '<span class="badge badge-role">newest</span>' : ''}</h3>
+                    <p class="meta">${escapeHtml(b.name)} · ${formatSize(b.size)}</p>
+                </div>
+                <button class="btn btn-sm btn-ghost" data-backup="${escapeHtml(b.name)}">Download</button>
+            </div>`).join('')
+            : '<div class="empty">No backups yet. The first one is made a few seconds after the server starts.</div>';
+    } catch (err) {
+        backupsList.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+    }
+}
+
+backupsList.addEventListener('click', (e) => {
+    const button = e.target.closest('button[data-backup]');
+    if (button) downloadFile(button, `/backups/${encodeURIComponent(button.dataset.backup)}`, button.dataset.backup);
+});
+
+backupNowBtn.addEventListener('click', async () => {
+    backupNowBtn.disabled = true;
+    try {
+        await adminApi('/backups', { method: 'POST' });
+        toast('Backup saved');
+        loadBackups();
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        backupNowBtn.disabled = false;
+    }
 });
 
 // ---------- security ----------
@@ -190,4 +234,5 @@ adminForm.addEventListener('submit', (e) => {
 if (me) {
     loadClubInfo();
     loadAdmins();
+    loadBackups();
 }

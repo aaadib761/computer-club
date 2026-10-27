@@ -1739,6 +1739,67 @@ app.get('/export/:type', verifyAdmin, (req, res) => {
     });
 });
 
+// database backups: a full copy of club.db, made once a day and on demand from Settings
+
+const BACKUP_DIR = path.join(__dirname, 'backups');
+const BACKUPS_TO_KEEP = 30;
+const BACKUP_NAME_PATTERN = /^club-\d{4}-\d{2}-\d{2}-\d{6}\.db$/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function listBackups() {
+    if (!fs.existsSync(BACKUP_DIR)) return [];
+    return fs.readdirSync(BACKUP_DIR)
+        .filter(name => BACKUP_NAME_PATTERN.test(name))
+        .map(name => {
+            const stats = fs.statSync(path.join(BACKUP_DIR, name));
+            return { name, size: stats.size, created_at: stats.mtime.toISOString() };
+        })
+        .sort((a, b) => b.name.localeCompare(a.name)); // names contain the date, so this is newest first
+}
+
+// VACUUM INTO writes a clean, consistent copy even while the server is using the database
+function makeBackup(done) {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const iso = new Date().toISOString(); // e.g. 2026-10-27T19:20:05.123Z
+    const name = `club-${iso.slice(0, 10)}-${iso.slice(11, 19).replace(/:/g, '')}.db`; // club-2026-10-27-192005.db
+    db.run(`VACUUM INTO ?`, [path.join(BACKUP_DIR, name)], (err) => {
+        if (err) {
+            console.error('Error backing up database:', err.message);
+            return done && done(err);
+        }
+        // keep only the newest backups so the folder doesn't grow forever
+        listBackups().slice(BACKUPS_TO_KEEP).forEach(old => removeFile(path.join(BACKUP_DIR, old.name)));
+        console.log(`Database backed up to backups/${name}`);
+        if (done) done(null, name);
+    });
+}
+
+// checked every hour: back up if the newest backup is a day old (or there is none)
+function backupIfDue() {
+    const newest = listBackups()[0];
+    if (!newest || Date.now() - new Date(newest.created_at).getTime() >= DAY_MS) makeBackup();
+}
+
+app.get('/backups', verifyAdmin, (req, res) => {
+    res.status(200).json(listBackups());
+});
+
+app.post('/backups', verifyAdmin, (req, res) => {
+    makeBackup((err, name) => {
+        if (err) return res.status(500).json({ error: 'Failed to back up the database' });
+        res.status(201).json(listBackups().find(b => b.name === name));
+    });
+});
+
+app.get('/backups/:name', verifyAdmin, (req, res) => {
+    const name = req.params.name;
+    // only plain backup file names, so nobody can ask for ../.env or other files
+    if (!BACKUP_NAME_PATTERN.test(name) || !fs.existsSync(path.join(BACKUP_DIR, name))) {
+        return res.status(404).json({ error: 'Backup not found' });
+    }
+    res.download(path.join(BACKUP_DIR, name), name);
+});
+
 // announcements
 
 app.post('/announcements', verifyAdmin, (req, res) => {
@@ -1908,4 +1969,7 @@ app.use((err, req, res, next) => {
 });
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
+    // give the database a moment to finish setting up its tables first
+    setTimeout(backupIfDue, 5000);
+    setInterval(backupIfDue, 60 * 60 * 1000);
 });
