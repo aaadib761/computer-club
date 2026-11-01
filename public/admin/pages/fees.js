@@ -66,7 +66,8 @@ function renderBreakdown(boxId, field, select, sort) {
         groups.set(key, g);
     });
     const keys = [...groups.keys()].sort((a, b) => (a === NO_VALUE) - (b === NO_VALUE) || sort(a, b));
-    const label = key => (key === NO_VALUE ? `No ${field}` : field === 'batch' ? `Batch ${key}` : key);
+    // members without a batch or department are from batches/departments not listed separately
+    const label = key => (key === NO_VALUE ? (field === 'batch' ? 'Other batches' : 'Other departments') : field === 'batch' ? `Batch ${key}` : key);
 
     const box = document.getElementById(boxId);
     box.innerHTML = keys.length ? keys.map(key => {

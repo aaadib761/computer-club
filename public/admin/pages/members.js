@@ -16,8 +16,8 @@ const feeForm = document.getElementById('fee-form');
 let feeMemberId = null;
 // filter dropdowns + form suggestions, built from the values members already have
 const FILTERS = [
-    { field: 'department', select: document.getElementById('department-filter'), all: 'All departments', none: 'No department', suggestions: 'department-options' },
-    { field: 'batch', select: document.getElementById('batch-filter'), all: 'All batches', none: 'No batch', suggestions: 'batch-options' },
+    { field: 'department', select: document.getElementById('department-filter'), all: 'All departments', none: 'Other departments', suggestions: 'department-options' },
+    { field: 'batch', select: document.getElementById('batch-filter'), all: 'All batches', none: 'Other batches', suggestions: 'batch-options' },
 ];
 
 async function load() {
