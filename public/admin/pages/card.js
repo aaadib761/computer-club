@@ -7,7 +7,25 @@ const memberIds = (params.get('ids') || params.get('id') || '')
 const warnings = document.getElementById('card-warnings');
 const sheet = document.getElementById('card-sheet');
 
-const DEFAULT_BACK_TEXT = 'This card is the property of NDUB Computer Club.\nShow this card at club events.\nThis card is not transferable.';
+// the rules under "N.B." on the back, one paragraph per line (Settings > Membership card can replace them)
+const DEFAULT_BACK_TEXT = [
+    'This card must be carried at all times when you are within the NDUBCC club. It is not transferable. '
+        + 'Illegal use of this card will be considered as an offence and membership of this card-holder may be cancelled.',
+    'Loss of this card must be reported immediately to the Moderator\'s Office and a new one provided with a specified fee.',
+].join('\n');
+
+const CARD_SLOGAN = 'Be The Crowd Make NDUB Proud';
+
+// the degree printed as PROGRAM, from the member's department; any other department is printed as it is
+const PROGRAMS = {
+    CSE: 'B.Sc. in CSE',
+    EEE: 'B.Sc. in EEE',
+    BBA: 'BBA',
+    English: 'BA in English',
+    Law: 'LLB (Hons)',
+    Economics: 'BSS in Economics',
+    Microbiology: 'B.Sc. in Microbiology',
+};
 
 function warn(text) {
     warnings.insertAdjacentHTML('beforeend', `<div class="alert alert-error">${escapeHtml(text)}</div>`);
@@ -26,50 +44,50 @@ async function qrImage(memberId) {
     return URL.createObjectURL(await res.blob());
 }
 
-function cardFront(member, qrUrl, validUntil) {
-    const bottomRight = validUntil
-        ? `Valid until ${formatDate(validUntil, { withTime: false })}`
-        : `Member since ${String(member.created_at || '').slice(0, 4)}`;
+function cardFront(member, settings) {
+    const program = PROGRAMS[member.department] || member.department || '—';
     return `
-        <div class="id-card" aria-label="Front of ${escapeHtml(member.name)}'s card">
-            <div class="id-card-top">
-                <img src="../images/logo.png" alt="">
-                <div><b>NDUB COMPUTER CLUB</b><span>Membership Card</span></div>
+        <div class="id-card idc-front" aria-label="Front of ${escapeHtml(member.name)}'s card">
+            <img class="idc-logo" src="../images/logo.png" alt="">
+            <div class="idc-title">Notre Dame University Bangladesh<br>Computer Club (NDUBCC)</div>
+            <div class="idc-pill">Membership Id Card</div>
+            <div class="idc-photo">
+                ${member.photo_path
+                    ? `<img src="${escapeHtml(photoUrl(member.photo_path))}" alt="">`
+                    : `<span>${escapeHtml(initials(member.name))}</span>`}
             </div>
-            <div class="id-card-body">
-                <div class="id-card-photo">
-                    ${member.photo_path
-                        ? `<img src="${escapeHtml(photoUrl(member.photo_path))}" alt="">`
-                        : `<span>${escapeHtml(initials(member.name))}</span>`}
-                </div>
-                <dl class="id-card-details">
-                    <dt>Name</dt><dd>${escapeHtml(member.name)}</dd>
-                    <dt>Club ID</dt><dd>${escapeHtml(member.club_id)}</dd>
-                    <dt>Student ID</dt><dd>${escapeHtml(member.student_id || '—')}</dd>
-                    <dt>Department</dt><dd>${escapeHtml([member.department, member.batch].filter(Boolean).join('-') || '—')}</dd>
-                </dl>
-                <img class="id-card-qr" src="${escapeHtml(qrUrl)}" alt="QR code to verify this card">
+            <dl class="idc-fields">
+                <dt>NAME</dt><dd class="idc-name">${escapeHtml(member.name)}</dd>
+                <dt>PROGRAM</dt><dd>${escapeHtml(program)}</dd>
+                <dt>NDUB ID</dt><dd>${escapeHtml(member.student_id || '—')}</dd>
+                <dt>CLUB ID</dt><dd>${escapeHtml(member.club_id)}</dd>
+            </dl>
+            <div class="idc-sign">
+                ${settings.card_signature ? `<img src="${escapeHtml(photoUrl(settings.card_signature))}" alt="">` : ''}
+                <span>Moderator</span>
             </div>
-            <div class="id-card-bottom">
-                <span>Notre Dame University Bangladesh</span>
-                <span>${escapeHtml(bottomRight)}</span>
-            </div>
+            <div class="idc-band">${escapeHtml(CARD_SLOGAN)}</div>
         </div>`;
 }
 
-function cardBack(settings) {
+function cardBack(member, qrUrl, settings) {
     const rules = (settings.card_back_text || DEFAULT_BACK_TEXT).split('\n').map(r => r.trim()).filter(Boolean);
-    const contact = [settings.contact_email, settings.contact_phone].filter(Boolean).join(' · ');
+    const contact = [
+        settings.address,
+        settings.contact_email && `E-mail: ${settings.contact_email}`,
+        settings.website && `Website: ${settings.website}`,
+    ].filter(Boolean);
     return `
-        <div class="id-card id-card-back" aria-label="Back of card">
-            <div class="back-head">NDUB COMPUTER CLUB</div>
-            <ul class="back-rules">${rules.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>
-            <div class="back-return">
-                <b>If found, please return to NDUB Computer Club</b>
-                ${contact ? `<span>${escapeHtml(contact)}</span>` : ''}
-                ${settings.address ? `<span>${escapeHtml(settings.address)}</span>` : ''}
+        <div class="id-card idc-back" aria-label="Back of ${escapeHtml(member.name)}'s card">
+            <b class="idc-nb">N.B.</b>
+            ${rules.map(r => `<p>${escapeHtml(r)}</p>`).join('')}
+            <p>If found, please return this card to the Moderator's Office:</p>
+            <p class="idc-club"><b>Notre Dame University Bangladesh Computer Club</b></p>
+            <p class="idc-contact">${contact.map(escapeHtml).join('<br>')}</p>
+            <div class="idc-qr">
+                <img src="${escapeHtml(qrUrl)}" alt="QR code to verify this card">
+                <b>${escapeHtml(member.club_id)}</b>
             </div>
-            <div class="back-foot">Scan the QR code on the front to check this card is genuine.</div>
         </div>`;
 }
 
@@ -93,6 +111,9 @@ async function loadCards() {
     if (unpaid.length) warn(`Fee not paid yet: ${nameList(unpaid)}. You can still print, but the club usually issues cards after payment.`);
     const noPhoto = printable.filter(m => !m.photo_path);
     if (noPhoto.length) warn(`No photo: ${nameList(noPhoto)}. Upload one in Members → Photo for a proper card.`);
+    if (!settings.card_signature) warn('No moderator signature yet, so the signature line will be empty. Upload one in Settings > Membership card.');
+    const missingContact = [!settings.address && 'address', !settings.contact_email && 'email', !settings.website && 'website'].filter(Boolean);
+    if (missingContact.length) warn(`The back of the card has no ${missingContact.join(', ')} yet. Add ${missingContact.length === 1 ? 'it' : 'them'} in Settings > Club info.`);
     if (settings.card_valid_until && new Date(`${settings.card_valid_until}T23:59`) < new Date()) {
         warn('The "Cards valid until" date in Settings has already passed, so these cards would show as expired.');
     }
@@ -105,14 +126,37 @@ async function loadCards() {
         return warn(err.message);
     }
 
-    const back = cardBack(settings);
+    // the card shows the club ID under the QR code, so each member gets their own back
     sheet.innerHTML = printable.map((m, i) => `
-        <div class="card-pair">${cardFront(m, qrUrls[i], settings.card_valid_until)}${back}</div>`).join('');
+        <div class="card-pair">${cardFront(m, settings)}${cardBack(m, qrUrls[i], settings)}</div>`).join('');
+    await fitNames();
 
     document.title = printable.length === 1 ? `${printable[0].name} — Membership Card` : `${printable.length} Membership Cards`;
     document.getElementById('card-count').textContent =
         `${printable.length} card${printable.length === 1 ? '' : 's'} · ${Math.ceil(printable.length / 4)} A4 page${printable.length > 4 ? 's' : ''}`;
     document.getElementById('print-btn').disabled = false;
+}
+
+// A long name is made just small enough to fit on one line (down to 1.8 mm). Longer still, it goes onto
+// two lines in the same row, shrinking again if needed (down to 1.4 mm); only beyond that is it cut with "…".
+// Measured once the card font has loaded, since the fallback font has different widths.
+async function fitNames() {
+    await document.fonts.ready;
+    const shrink = (name, min, tooBig) => {
+        let size = parseFloat(name.style.fontSize) || 2.2;
+        while (tooBig() && size > min) {
+            size = Math.round((size - 0.1) * 10) / 10;
+            name.style.fontSize = `${size}mm`;
+        }
+    };
+    document.querySelectorAll('.idc-name').forEach(name => {
+        name.style.fontSize = '';
+        name.classList.remove('idc-name-wrap');
+        shrink(name, 1.8, () => name.scrollWidth > name.clientWidth);
+        if (name.scrollWidth <= name.clientWidth) return;
+        name.classList.add('idc-name-wrap');
+        shrink(name, 1.4, () => name.scrollHeight > name.clientHeight + 1);
+    });
 }
 
 document.getElementById('print-btn').addEventListener('click', () => window.print());

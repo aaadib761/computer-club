@@ -83,14 +83,16 @@ const templates = {
         button: { label: 'Event details', url: siteUrl(`event.html?id=${event.id}`) },
     }),
 
+    // sent after the event ends, with the certificate picture attached
     certificate: ({ name, event, code }) => build({
-        subject: `Thanks for attending ${event.title}`,
+        subject: `Your certificate: ${event.title}`,
         heading: `Thanks for coming, ${name}!`,
         paragraphs: [
-            `We've recorded your attendance at "${event.title}". Your certificate of participation is ready.`,
+            `Thank you for taking part in "${event.title}". Your certificate of participation is attached to this email.`,
+            'You can also open it online to print it or save it as a PDF. Anyone can check that it is genuine by scanning its QR code.',
             `Certificate code: ${code}`,
         ],
-        button: { label: 'View my certificate', url: siteUrl(`certificate.html?code=${encodeURIComponent(code)}`) },
+        button: { label: 'Open my certificate', url: siteUrl(`certificate.html?code=${encodeURIComponent(code)}`) },
     }),
 
     passwordReset: ({ name, link }) => build({

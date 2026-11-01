@@ -10,10 +10,50 @@ async function loadClubInfo() {
         const settings = await api('/settings');
         fillForm(clubForm, settings);
         fillForm(cardForm, settings);
+        showSignature(settings.card_signature);
     } catch (err) {
         showMessage(clubForm.querySelector('.form-message'), 'error', err.message);
     }
 }
+
+// ---------- moderator's signature (for membership cards) ----------
+
+const signatureFile = document.getElementById('signature-file');
+const signatureRemove = document.getElementById('signature-remove');
+
+function showSignature(path) {
+    document.getElementById('signature-preview').innerHTML = path
+        ? `<img src="${escapeHtml(photoUrl(path))}" alt="Moderator's signature">`
+        : '<span class="meta">No signature yet</span>';
+    signatureRemove.classList.toggle('hidden', !path);
+}
+
+signatureFile.addEventListener('change', async () => {
+    const file = signatureFile.files[0];
+    if (!file) return;
+    const body = new FormData();
+    body.append('photo', file);
+    try {
+        const { card_signature } = await adminApi('/settings/signature', { method: 'POST', body });
+        showSignature(card_signature);
+        toast('Signature saved. It now prints on every card.');
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        signatureFile.value = '';
+    }
+});
+
+signatureRemove.addEventListener('click', async () => {
+    if (!(await confirmBox({ title: 'Remove the signature?', message: 'Cards will print with an empty signature line until a new one is uploaded.', confirmText: 'Remove' }))) return;
+    try {
+        await adminApi('/settings/signature', { method: 'DELETE' });
+        showSignature(null);
+        toast('Signature removed');
+    } catch (err) {
+        toast(err.message, 'error');
+    }
+});
 
 // ---------- membership card ----------
 

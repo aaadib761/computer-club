@@ -35,6 +35,10 @@ async function loadCertificate() {
     status.innerHTML = `<div class="alert alert-success">✅ This certificate is authentic: it was issued by NDUB Computer Club to ${escapeHtml(cert.name)}.</div>`;
     document.getElementById('certificate').classList.remove('hidden');
     document.getElementById('print-btn').disabled = false;
+    // the same picture that's emailed after the event
+    const download = document.getElementById('download-btn');
+    download.href = `/certificates/${encodeURIComponent(cert.code)}/image.png?download=1`;
+    download.classList.remove('hidden');
 }
 
 document.getElementById('print-btn').addEventListener('click', () => window.print());

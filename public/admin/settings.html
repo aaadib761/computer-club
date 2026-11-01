@@ -60,9 +60,15 @@
                         <input id="c-github" name="github" type="url" maxlength="300" placeholder="https://github.com/...">
                     </div>
                 </div>
-                <div class="field">
-                    <label for="c-youtube">YouTube link</label>
-                    <input id="c-youtube" name="youtube" type="url" maxlength="300" placeholder="https://youtube.com/...">
+                <div class="field-row">
+                    <div class="field">
+                        <label for="c-youtube">YouTube link</label>
+                        <input id="c-youtube" name="youtube" type="url" maxlength="300" placeholder="https://youtube.com/...">
+                    </div>
+                    <div class="field">
+                        <label for="c-website">Website <small>(printed on membership cards)</small></label>
+                        <input id="c-website" name="website" type="url" maxlength="300" placeholder="https://ndubcc.pages.dev">
+                    </div>
                 </div>
                 <button class="btn" type="submit">Save club info</button>
             </form>
@@ -75,9 +81,20 @@
             <form id="card-form" class="card" novalidate>
                 <div class="form-message hidden" role="status"></div>
                 <div class="field">
-                    <label for="k-back">Back side text <small>(one rule per line)</small></label>
-                    <textarea id="k-back" name="card_back_text" maxlength="600" placeholder="This card is the property of NDUB Computer Club.&#10;Show this card at club events.&#10;This card is not transferable."></textarea>
-                    <p class="hint">Leave empty to use the example above. The club's email, phone and address (from Club info) are added automatically.</p>
+                    <label for="k-back">Back side rules <small>(one paragraph per line)</small></label>
+                    <textarea id="k-back" name="card_back_text" maxlength="600" placeholder="This card must be carried at all times when you are within the NDUBCC club. It is not transferable. Illegal use of this card will be considered as an offence and membership of this card-holder may be cancelled.&#10;Loss of this card must be reported immediately to the Moderator's Office and a new one provided with a specified fee."></textarea>
+                    <p class="hint">Printed under "N.B." on the back. Leave empty to use the text above. The return address, email and website below them come from Club info.</p>
+                </div>
+                <div class="field">
+                    <label>Moderator's signature <small>(printed on the front)</small></label>
+                    <div class="signature-row">
+                        <div class="signature-preview" id="signature-preview"><span class="meta">No signature yet</span></div>
+                        <div>
+                            <input id="signature-file" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Signature picture">
+                            <p class="hint">A photo or scan of the signature in dark ink. A PNG with a see-through background looks best; a plain white background is fine too.</p>
+                            <button type="button" class="btn btn-sm btn-ghost hidden" id="signature-remove">Remove signature</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="field" style="max-width: 260px;">
                     <label for="k-valid">Cards valid until <small>(optional)</small></label>

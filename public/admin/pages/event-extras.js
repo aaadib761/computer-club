@@ -56,16 +56,42 @@ async function loadCertificates() {
     try {
         const event = await api(`/events/${encodeURIComponent(eventId)}`);
         if (isUpcoming(event.date) && eventStatus(event).key !== 'today') return section.classList.add('hidden');
-        const certificates = await adminApi(`/events/${encodeURIComponent(eventId)}/certificates`);
+        const info = await adminApi(`/events/${encodeURIComponent(eventId)}/certificates`);
         section.classList.remove('hidden');
-        list.innerHTML = certificates.length
-            ? certificates.map(c => `
+        const status = document.getElementById('certificates-status');
+        const sendBtn = document.getElementById('send-certificates-btn');
+        const unsent = info.attendees.filter(c => !c.certificate_sent_at).length;
+        const sentCount = info.attendees.length - unsent;
+        const endsAt = info.ends_at ? formatDate(info.ends_at, { isUtc: true, withTime: true }) : 'the end of the event';
+
+        if (!info.enabled) {
+            status.textContent = 'Certificates are turned off for this event. To give them, edit the event and tick "Give participation certificates".';
+        } else if (!info.email) {
+            status.innerHTML = 'Email is off, so certificates can\'t be emailed. Members can still open theirs from the event page on the website. Turn email on in <a href="settings.html">Settings</a>.';
+        } else if (!info.ended) {
+            status.textContent = `Certificates will be emailed automatically to everyone marked present or late when the event ends (${endsAt}).`;
+        } else if (info.auto_window_passed && unsent) {
+            status.textContent = `This event ended on ${endsAt}. Certificates are only sent automatically for a few days after an event, so use "Send certificates now" for anyone still waiting.`;
+        } else {
+            status.textContent = `Certificates are emailed automatically after the event (it ended ${endsAt}). Sent to ${sentCount} of ${info.attendees.length}.`;
+        }
+        sendBtn.classList.toggle('hidden', !(info.enabled && info.email && unsent));
+        sendBtn.textContent = `Send certificates now (${unsent})`;
+
+        list.innerHTML = info.attendees.length
+            ? info.attendees.map(c => `
                 <div class="row">
                     <div class="row-main">
-                        <h3>${escapeHtml(c.name)}</h3>
-                        <p class="meta">Certificate ${escapeHtml(c.code)}</p>
+                        <h3>${escapeHtml(c.name)}
+                            ${!info.enabled ? '' : c.certificate_sent_at
+                                ? `<span class="badge badge-approved" title="Emailed ${formatDate(c.certificate_sent_at, { isUtc: true })}">Emailed</span>`
+                                : '<span class="badge badge-pending">Not emailed yet</span>'}</h3>
+                        <p class="meta">Certificate ${escapeHtml(c.code)}${c.certificate_sent_at ? ` · emailed ${formatDate(c.certificate_sent_at, { isUtc: true })}` : ''}</p>
                     </div>
-                    <a class="btn btn-sm btn-ghost" href="../certificate.html?code=${encodeURIComponent(c.code)}" target="_blank" rel="noopener">Open certificate</a>
+                    <div class="btn-group">
+                        <a class="btn btn-sm btn-ghost" href="/certificates/${encodeURIComponent(c.code)}/image.png?download=1">Download</a>
+                        <a class="btn btn-sm btn-ghost" href="../certificate.html?code=${encodeURIComponent(c.code)}" target="_blank" rel="noopener">Open</a>
+                    </div>
                 </div>`).join('')
             : '<div class="empty">No one is marked present or late yet, so there are no certificates.</div>';
     } catch (err) {
@@ -73,6 +99,27 @@ async function loadCertificates() {
         list.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
     }
 }
+
+document.getElementById('send-certificates-btn').addEventListener('click', async (e) => {
+    const button = e.currentTarget;
+    if (!(await confirmBox({
+        title: 'Email certificates now?',
+        message: 'Everyone marked present or late who hasn\'t had their certificate yet will get it by email now.',
+        confirmText: 'Send',
+        danger: false,
+    }))) return;
+    button.disabled = true;
+    button.textContent = 'Sending…';
+    try {
+        const { sent, failed } = await adminApi(`/events/${encodeURIComponent(eventId)}/certificates/send`, { method: 'POST' });
+        toast(failed ? `${sent} sent, ${failed} failed. Check the email settings and try again.` : `${sent} certificate${sent === 1 ? '' : 's'} emailed`, failed ? 'error' : 'success');
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        button.disabled = false;
+        loadCertificates();
+    }
+});
 
 // attendance changes (buttons or check-in) can change who gets a certificate
 function refreshEventExtras() {

@@ -15,6 +15,7 @@ const sharp = require('sharp');
 const mailer = require('./mailer');
 const { passwordProblem, LoginLockout } = require('./security');
 const twofactor = require('./twofactor');
+const { renderCertificatePng } = require('./certificate-image');
 
 const UPLOAD_TYPE_ERROR = 'Only JPEG, PNG, and WEBP images are allowed';
 const INVALID_IMAGE_ERROR = "That file isn't a valid image.";
@@ -289,15 +290,6 @@ function formatEventDate(date) {
     return parsed.toLocaleString('en-GB', { dateStyle: 'long', ...(text.includes('T') ? { timeStyle: 'short' } : {}) });
 }
 
-// After someone is marked present or late: thank them and send their certificate (once the event has begun).
-function emailCertificate(eventId, memberId) {
-    if (!mailer.isConfigured()) return;
-    db.get(`SELECT id, title, date FROM events WHERE id = ?`, [eventId], (err, event) => {
-        if (err || !event || !eventHasStarted(event.date)) return;
-        emailMember(memberId, m => mailer.templates.certificate({ name: m.name, event, code: certificateCode(event.id, memberId) }));
-    });
-}
-
 // Runs SQL statements one after another: [[sql, params], ...]. Calls done(err) after the last one or the first failure.
 function runInOrder(statements, done) {
     const [first, ...rest] = statements;
@@ -388,6 +380,7 @@ const ACTIVITY = {
     'POST /events/:id/photos': ['events', 'Uploaded event photo'],
     'DELETE /events/:id/photos/:photoId': ['events', 'Deleted event photo'],
     'DELETE /events/:id/registrations/:memberId': ['events', 'Removed a registration'],
+    'POST /events/:id/certificates/send': ['events', 'Sent certificates'],
     'POST /events/:id/checkin': ['attendance', 'Checked in'],
     'POST /attendance': ['attendance', 'Marked attendance'],
     'PUT /attendance/:id': ['attendance', 'Changed attendance'],
@@ -406,6 +399,8 @@ const ACTIVITY = {
     'POST /committee-archive': ['content', 'Archived committee'],
     'DELETE /committee-archive/:id': ['content', 'Deleted archived committee'],
     'PUT /settings': ['settings', 'Changed settings'],
+    'POST /settings/signature': ['settings', 'Uploaded card signature'],
+    'DELETE /settings/signature': ['settings', 'Removed card signature'],
     'POST /email/test': ['settings', 'Sent test email'],
     'POST /admin/register': ['admins', 'Added admin'],
     'PUT /admin/:username/role': ['admins', 'Changed admin role'],
@@ -876,17 +871,21 @@ app.delete('/members/:id', verifyAdmin, (req, res) => {
 
 // Registration settings aren't text, so they're checked apart from EVENT_RULES.
 // Fields not sent keep the event's current value.
+// Reads the event's on/off settings (online registration, seat limit, certificates) from a request.
 function readRegistration(body, existing = {}) {
     const open = body.registration_open !== undefined ? body.registration_open : existing.registration_open;
     const cap = body.capacity !== undefined ? body.capacity : existing.capacity;
+    // certificates are on unless switched off
+    const certificates = body.certificates !== undefined ? body.certificates : (existing.certificates ?? 1);
     if (open !== undefined && open !== null && ![true, false, 0, 1].includes(open)) {
         return { error: 'registration_open must be true or false.' };
     }
+    if (![true, false, 0, 1].includes(certificates)) return { error: 'certificates must be true or false.' };
     const noLimit = cap === undefined || cap === null || cap === '';
     if (!noLimit && !(Number.isInteger(Number(cap)) && Number(cap) >= 1 && Number(cap) <= 10000)) {
         return { error: 'capacity must be a whole number from 1 to 10000.' };
     }
-    return { registration_open: open ? 1 : 0, capacity: noLimit ? null : Number(cap) };
+    return { registration_open: open ? 1 : 0, capacity: noLimit ? null : Number(cap), certificates: certificates ? 1 : 0 };
 }
 
 app.post('/events', verifyAdmin, (req, res) => {
@@ -895,8 +894,8 @@ app.post('/events', verifyAdmin, (req, res) => {
     const registration = readRegistration(req.body);
     if (registration.error) return res.status(400).json({ error: registration.error });
 
-    const values = [...EVENT_FIELDS.map(field => cleanText(req.body[field])), registration.registration_open, registration.capacity];
-    const columns = [...EVENT_FIELDS, 'registration_open', 'capacity'];
+    const values = [...EVENT_FIELDS.map(field => cleanText(req.body[field])), registration.registration_open, registration.capacity, registration.certificates];
+    const columns = [...EVENT_FIELDS, 'registration_open', 'capacity', 'certificates'];
     const query = `INSERT INTO events (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
     db.run(query, values, function (err) {
         if (err) {
@@ -1043,7 +1042,6 @@ app.post('/attendance', verifyAdmin, (req, res) => {
             res.status(500).json({ error: 'Failed to add attendance' });
         } else {
             res.status(201).json({ id: this.lastID, member_id, event_id, status });
-            if (status !== 'absent') emailCertificate(event_id, member_id);
         }
 
     });
@@ -1077,8 +1075,6 @@ app.put('/attendance/:id', verifyAdmin, (req, res) => {
                 return res.status(500).json({ error: 'Failed to update attendance' });
             }
             res.status(200).json({ id: req.params.id, status });
-            // absent -> present/late is when they first earn a certificate (present <-> late changes nothing)
-            if (before.status === 'absent' && status !== 'absent') emailCertificate(before.event_id, before.member_id);
         });
     });
 });
@@ -2055,9 +2051,11 @@ app.get('/calendar.ics', (req, res) => {
 
 // club info (Settings page) — public to read, admins to edit
 
-const SETTING_KEYS = ['contact_email', 'contact_phone', 'address', 'facebook', 'instagram', 'linkedin', 'github', 'youtube',
+const SETTING_KEYS = ['contact_email', 'contact_phone', 'address', 'website', 'facebook', 'instagram', 'linkedin', 'github', 'youtube',
     'about_text', 'objectives', 'founded_year', 'committee_term', 'membership_fee', 'card_back_text', 'card_valid_until'];
-const LINK_KEYS = ['facebook', 'instagram', 'linkedin', 'github', 'youtube'];
+const LINK_KEYS = ['website', 'facebook', 'instagram', 'linkedin', 'github', 'youtube'];
+// set only by uploading a picture (POST /settings/signature), never typed in, but readable like the rest
+const UPLOADED_SETTING_KEYS = ['card_signature'];
 // the About page texts are content that editors manage; contact details, fee and card settings are for owners
 const EDITOR_SETTING_KEYS = ['about_text', 'objectives', 'founded_year', 'committee_term'];
 // most settings are short; the About page texts can be longer
@@ -2069,9 +2067,48 @@ app.get('/settings', (req, res) => {
             console.error('Error fetching settings:', err.message);
             return res.status(500).json({ error: 'Failed to fetch settings' });
         }
-        const settings = Object.fromEntries(SETTING_KEYS.map(key => [key, null]));
-        rows.forEach(row => { if (SETTING_KEYS.includes(row.key)) settings[row.key] = row.value; });
+        const readable = [...SETTING_KEYS, ...UPLOADED_SETTING_KEYS];
+        const settings = Object.fromEntries(readable.map(key => [key, null]));
+        rows.forEach(row => { if (readable.includes(row.key)) settings[row.key] = row.value; });
         res.status(200).json(settings);
+    });
+});
+
+// The moderator's signature printed on membership cards: a picture, ideally dark ink on a white or
+// see-through background. Kept as a PNG so a see-through background stays see-through.
+app.post('/settings/signature', verifyOwner, upload.single('photo'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Please choose a picture of the signature.' });
+    const signaturePath = 'uploads/signature-' + req.file.filename.replace(/\.[a-z]+$/, '') + '.png';
+    try {
+        // turned the right way up, hidden data removed, no bigger than needed for a card
+        await sharp(req.file.path).rotate().resize({ width: 900, height: 400, fit: 'inside', withoutEnlargement: true }).png().toFile(signaturePath);
+    } catch (err) {
+        console.error('Error processing signature:', err.message);
+        removeFile(req.file.path);
+        return res.status(400).json({ error: INVALID_IMAGE_ERROR });
+    }
+    removeFile(req.file.path);
+    db.get(`SELECT value FROM settings WHERE key = 'card_signature'`, [], (err, old) => {
+        db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('card_signature', ?)`, [signaturePath], (err) => {
+            if (err) {
+                console.error('Error saving signature:', err.message);
+                removeFile(signaturePath);
+                return res.status(500).json({ error: 'Failed to save the signature' });
+            }
+            if (old && old.value) removeFile(old.value);
+            res.status(201).json({ card_signature: signaturePath });
+        });
+    });
+});
+
+app.delete('/settings/signature', verifyOwner, (req, res) => {
+    db.get(`SELECT value FROM settings WHERE key = 'card_signature'`, [], (err, old) => {
+        if (err) return res.status(500).json({ error: 'Failed to remove the signature' });
+        db.run(`DELETE FROM settings WHERE key = 'card_signature'`, [], (err) => {
+            if (err) return res.status(500).json({ error: 'Failed to remove the signature' });
+            if (old && old.value) removeFile(old.value);
+            res.status(200).json({ message: 'Signature removed' });
+        });
     });
 });
 
@@ -2180,7 +2217,6 @@ app.post('/events/:id/checkin', verifyAnyAdmin, (req, res) => {
                         return res.status(500).json({ error: 'Check-in failed' });
                     }
                     res.status(200).json({ member, already: false });
-                    emailCertificate(event.id, member.id);
                 });
             });
         });
@@ -2308,12 +2344,13 @@ function readCertificateCode(code) {
 app.post('/certificates/claim', memberFormLimiter, (req, res) => {
     const eventId = Number(req.body.event_id);
     if (!Number.isInteger(eventId)) return res.status(400).json({ error: 'Choose an event.' });
-    db.get(`SELECT id, date FROM events WHERE id = ?`, [eventId], (err, event) => {
+    db.get(`SELECT id, date, certificates FROM events WHERE id = ?`, [eventId], (err, event) => {
         if (err) {
             console.error('Error fetching event:', err.message);
             return res.status(500).json({ error: 'Could not get the certificate' });
         }
         if (!event) return res.status(404).json({ error: 'Event not found' });
+        if (event.certificates !== 1) return res.status(400).json({ error: 'This event doesn\'t give certificates.' });
         if (!eventHasStarted(event.date)) return res.status(400).json({ error: 'Certificates are available after the event.' });
         findMemberByIds(req.body.club_id, req.body.student_id, (err, member) => {
             if (err) {
@@ -2335,32 +2372,146 @@ app.post('/certificates/claim', memberFormLimiter, (req, res) => {
 });
 
 // Public: show (and so verify) a certificate from its code.
-app.get('/certificates/:code', (req, res) => {
+// Everything printed on one certificate, or null if that member didn't attend (present or late).
+// Used by the certificate page, the certificate picture and the certificate emails.
+async function loadCertificate(eventId, memberId) {
+    const row = await dbGet(`SELECT m.name, m.email, e.title, e.date, e.category, e.speaker, e.venue
+        FROM attendance a JOIN members m ON m.id = a.member_id JOIN events e ON e.id = a.event_id
+        WHERE a.event_id = ? AND a.member_id = ? AND a.status IN ('present', 'late')`, [eventId, memberId]);
+    if (!row) return null;
+    // signature lines: the current president and the club's moderator, if they're set up
+    const president = await dbGet(`SELECT name FROM members WHERE LOWER(TRIM(position)) = 'president' LIMIT 1`, []);
+    const moderator = await dbGet(`SELECT name FROM advisors WHERE LOWER(TRIM(role)) = 'moderator' ORDER BY sort_order IS NULL, sort_order LIMIT 1`, []);
+    return {
+        code: certificateCode(eventId, memberId),
+        name: row.name,
+        email: row.email,
+        event: { id: eventId, title: row.title, date: row.date, category: row.category, speaker: row.speaker, venue: row.venue },
+        president: president ? president.name : null,
+        moderator: moderator ? moderator.name : null,
+    };
+}
+
+app.get('/certificates/:code', async (req, res) => {
     const parsed = readCertificateCode(req.params.code);
     if (!parsed) return res.status(404).json({ error: 'This certificate code is not valid.' });
-    const query = `SELECT m.name, e.title, e.date, e.category, e.speaker, e.venue
-        FROM attendance a JOIN members m ON m.id = a.member_id JOIN events e ON e.id = a.event_id
-        WHERE a.event_id = ? AND a.member_id = ? AND a.status IN ('present', 'late')`;
-    db.get(query, [parsed.eventId, parsed.memberId], (err, row) => {
-        if (err) {
-            console.error('Error fetching certificate:', err.message);
-            return res.status(500).json({ error: 'Could not load the certificate' });
-        }
-        if (!row) return res.status(404).json({ error: 'This certificate is no longer valid.' });
-        // signature lines: the current president and the club's moderator, if they're set up
-        db.get(`SELECT name FROM members WHERE LOWER(TRIM(position)) = 'president' LIMIT 1`, [], (err, president) => {
-            db.get(`SELECT name FROM advisors WHERE LOWER(TRIM(role)) = 'moderator' ORDER BY sort_order IS NULL, sort_order LIMIT 1`, [], (err2, moderator) => {
-                res.status(200).json({
-                    code: certificateCode(parsed.eventId, parsed.memberId),
-                    name: row.name,
-                    event: { title: row.title, date: row.date, category: row.category, speaker: row.speaker, venue: row.venue },
-                    president: president ? president.name : null,
-                    moderator: moderator ? moderator.name : null,
-                });
-            });
-        });
-    });
+    try {
+        const cert = await loadCertificate(parsed.eventId, parsed.memberId);
+        if (!cert) return res.status(404).json({ error: 'This certificate is no longer valid.' });
+        const { email, ...shown } = cert;  // the email address is never shown publicly
+        res.status(200).json({ ...shown, event: { ...shown.event, id: undefined } });
+    } catch (err) {
+        console.error('Error fetching certificate:', err.message);
+        res.status(500).json({ error: 'Could not load the certificate' });
+    }
 });
+
+// The certificate as a PNG picture (the same one that's attached to the email).
+app.get('/certificates/:code/image.png', async (req, res) => {
+    const parsed = readCertificateCode(req.params.code);
+    if (!parsed) return res.status(404).json({ error: 'This certificate code is not valid.' });
+    try {
+        const cert = await loadCertificate(parsed.eventId, parsed.memberId);
+        if (!cert) return res.status(404).json({ error: 'This certificate is no longer valid.' });
+        const png = await renderCertificatePng({ ...cert, verifyUrl: `${siteBase(req)}/certificate.html?code=${encodeURIComponent(cert.code)}` });
+        res.type('image/png');
+        if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename="${certificateFileName(cert)}"`);
+        res.send(png);
+    } catch (err) {
+        console.error('Error drawing certificate:', err.message);
+        res.status(500).json({ error: 'Could not make the certificate picture' });
+    }
+});
+
+// "Nusrat Jahan" at "AI Workshop" -> certificate-nusrat-jahan-ai-workshop.png
+function certificateFileName(cert) {
+    const slug = text => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    return `certificate-${[slug(cert.name), slug(cert.event.title)].filter(Boolean).join('-').slice(0, 80) || cert.code}.png`;
+}
+
+// ---------- certificates by email, after the event ----------
+// Every 10 minutes: events that have ended (start + duration, or the end of the day for date-only events)
+// get their certificates emailed to everyone marked present or late. Each person gets it once.
+// Only events that ended in the last few days are sent automatically, so turning email on later doesn't
+// suddenly mail certificates for old events; those can still be sent with the button on the event page.
+const AUTO_CERTIFICATE_DAYS = 3;
+
+// the moment the event is over, as a Date (null if the date can't be read)
+function eventEndsAt(event) {
+    const times = eventTimes(event);
+    if (!times) return null;
+    if (!times.allDay) return times.end;
+    // all-day events end at midnight, club time
+    const [, y, m, d] = /^(\d{4})(\d{2})(\d{2})$/.exec(times.end).map(Number);
+    const asIfUtc = Date.UTC(y, m - 1, d);
+    return new Date(asIfUtc - zoneOffsetMinutes(new Date(asIfUtc), CLUB_TIMEZONE) * 60000);
+}
+
+function dbRun(query, params) {
+    return new Promise((resolve, reject) => db.run(query, params, function (err) { err ? reject(err) : resolve(this.changes); }));
+}
+
+// Emails one certificate, with the picture attached. Returns false if someone else already sent it; throws if it fails.
+async function sendCertificate(eventId, memberId) {
+    // claim it first, so the automatic round and the "Send" button can't both email the same person
+    const claimed = await dbRun(`UPDATE attendance SET certificate_sent_at = CURRENT_TIMESTAMP
+        WHERE event_id = ? AND member_id = ? AND certificate_sent_at IS NULL`, [eventId, memberId]);
+    if (!claimed) return false;
+    try {
+        const cert = await loadCertificate(eventId, memberId);
+        if (!cert) throw new Error('not an attendee');
+        const verifyUrl = mailer.siteUrl(`certificate.html?code=${encodeURIComponent(cert.code)}`);
+        const png = await renderCertificatePng({ ...cert, verifyUrl });
+        await mailer.sendMail(cert.email, {
+            ...mailer.templates.certificate({ name: cert.name, event: cert.event, code: cert.code }),
+            attachments: [{ filename: certificateFileName(cert), content: png, contentType: 'image/png' }],
+        });
+        return true;
+    } catch (err) {
+        // not sent after all: let the next round (or the button) try again
+        await dbRun(`UPDATE attendance SET certificate_sent_at = NULL WHERE event_id = ? AND member_id = ?`, [eventId, memberId]).catch(() => {});
+        throw err;
+    }
+}
+
+// Sends the certificates that are due. With eventId, only that event's (the "Send certificates" button),
+// and without the "ended in the last few days" limit. Returns { sent, failed }.
+let sendingCertificates = false;
+async function sendDueCertificates({ eventId = null } = {}) {
+    if (!mailer.isConfigured()) return { sent: 0, failed: 0 };
+    if (sendingCertificates && !eventId) return { sent: 0, failed: 0 };  // the last round is still going
+    sendingCertificates = true;
+    let sent = 0, failed = 0;
+    try {
+        const rows = await dbAll(`SELECT a.event_id, a.member_id, e.date, e.duration FROM attendance a JOIN events e ON e.id = a.event_id
+            WHERE a.status IN ('present', 'late') AND a.certificate_sent_at IS NULL AND e.certificates = 1
+            ${eventId ? 'AND e.id = ?' : ''}`, eventId ? [eventId] : []);
+        const now = Date.now();
+        const due = rows.filter(r => {
+            const end = eventEndsAt(r);
+            if (!end) return false;
+            // the button may send as soon as the event has started; automatic sending waits for the end
+            if (eventId) return eventHasStarted(r.date);
+            return end.getTime() <= now && now - end.getTime() <= AUTO_CERTIFICATE_DAYS * DAY_MS;
+        });
+        for (const r of due) {
+            try {
+                if (await sendCertificate(r.event_id, r.member_id)) sent++;
+            } catch (err) {
+                failed++;
+                console.error(`Certificate email failed (event ${r.event_id}, member ${r.member_id}):`, err.message);
+            }
+            // a short pause between emails, so Gmail doesn't treat a big event as spam
+            if (due.length > 1) await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        if (sent) console.log(`Emailed ${sent} certificate${sent === 1 ? '' : 's'}.`);
+    } catch (err) {
+        console.error('Error sending certificates:', err.message);
+    } finally {
+        if (!eventId) sendingCertificates = false;
+    }
+    return { sent, failed };
+}
 
 // The QR code printed on a certificate: it opens the certificate's own page, which proves it's real.
 app.get('/certificates/:code/qr', async (req, res) => {
@@ -2377,14 +2528,40 @@ app.get('/certificates/:code/qr', async (req, res) => {
 
 // Admin: certificate codes for everyone who attended an event.
 app.get('/events/:id/certificates', verifyAdmin, (req, res) => {
-    const query = `SELECT m.id AS member_id, m.name FROM attendance a JOIN members m ON m.id = a.member_id
+    const query = `SELECT m.id AS member_id, m.name, a.certificate_sent_at FROM attendance a JOIN members m ON m.id = a.member_id
         WHERE a.event_id = ? AND a.status IN ('present', 'late') ORDER BY m.name COLLATE NOCASE`;
     db.all(query, [req.params.id], (err, rows) => {
         if (err) {
             console.error('Error fetching attendees:', err.message);
             return res.status(500).json({ error: 'Failed to fetch certificates' });
         }
-        res.status(200).json(rows.map(r => ({ ...r, code: certificateCode(req.params.id, r.member_id) })));
+        db.get(`SELECT * FROM events WHERE id = ?`, [req.params.id], (err, event) => {
+            if (err || !event) return res.status(404).json({ error: 'Event not found' });
+            const ends = eventEndsAt(event);
+            res.status(200).json({
+                enabled: event.certificates === 1,
+                email: mailer.isConfigured(),
+                ends_at: ends ? ends.toISOString() : null,
+                ended: !!ends && ends.getTime() <= Date.now(),
+                // automatic sending only covers events that ended in the last few days
+                auto_window_passed: !!ends && Date.now() - ends.getTime() > AUTO_CERTIFICATE_DAYS * DAY_MS,
+                attendees: rows.map(r => ({ ...r, code: certificateCode(req.params.id, r.member_id) })),
+            });
+        });
+    });
+});
+
+// Admin: email certificates now to this event's attendees who haven't had theirs yet.
+app.post('/events/:id/certificates/send', verifyAdmin, (req, res) => {
+    if (!mailer.isConfigured()) return res.status(503).json({ error: 'Email is off, so certificates can\'t be emailed. Turn it on in Settings > Email.' });
+    db.get(`SELECT id, date, certificates FROM events WHERE id = ?`, [req.params.id], async (err, event) => {
+        if (err) return res.status(500).json({ error: 'Could not send certificates' });
+        if (!event) return res.status(404).json({ error: 'Event not found' });
+        if (event.certificates !== 1) return res.status(400).json({ error: 'Certificates are turned off for this event. Turn them on by editing the event.' });
+        if (!eventHasStarted(event.date)) return res.status(400).json({ error: 'Certificates can be sent once the event has started.' });
+        const result = await sendDueCertificates({ eventId: event.id });
+        res.locals.activity = `${result.sent} sent${result.failed ? `, ${result.failed} failed` : ''}`;
+        res.status(200).json(result);
     });
 });
 
@@ -2467,7 +2644,7 @@ app.get('/portal/me', verifyMember, async (req, res) => {
     try {
         const member = await dbGet(`SELECT name, club_id, student_id, department, batch, email, phone, position, photo_path,
             fee_paid, fee_paid_at, created_at FROM members WHERE id = ?`, [id]);
-        const attended = await dbAll(`SELECT e.id, e.title, e.date, e.category, e.venue, a.status
+        const attended = await dbAll(`SELECT e.id, e.title, e.date, e.category, e.venue, e.certificates, a.status
             FROM attendance a JOIN events e ON e.id = a.event_id
             WHERE a.member_id = ? AND a.status IN ('present', 'late') ORDER BY e.date DESC`, [id]);
         // upcoming events the member could register for, or already has
@@ -2480,7 +2657,9 @@ app.get('/portal/me', verifyMember, async (req, res) => {
                 member: { ...member, fee_paid: member.fee_paid === 1 },
                 card: { valid_until: validUntil, expired, active: member.fee_paid === 1 && !expired },
                 // certificates only exist once the event has started, same as the public claim form
-                attended: attended.map(e => ({ ...e, certificate: eventHasStarted(e.date) ? certificateCode(e.id, id) : null })),
+                attended: attended.map(({ certificates, ...e }) => ({
+                    ...e, certificate: certificates === 1 && eventHasStarted(e.date) ? certificateCode(e.id, id) : null,
+                })),
                 events: upcoming.filter(e => !eventHasStarted(e.date)).map(e => ({
                     id: e.id, title: e.title, date: e.date, category: e.category, venue: e.venue,
                     registration_open: e.registration_open === 1,
@@ -2912,6 +3091,8 @@ app.listen(PORT, (err) => {
     }
     console.log(`Server is running on port ${PORT}`);
     // give the database a moment to finish setting up its tables first
-    setTimeout(() => { backupIfDue(); pruneActivity(); }, 5000);
+    setTimeout(() => { backupIfDue(); pruneActivity(); sendDueCertificates(); }, 5000);
     setInterval(() => { backupIfDue(); pruneActivity(); }, 60 * 60 * 1000);
+    // certificates go out within 10 minutes of an event ending
+    setInterval(() => sendDueCertificates(), 10 * 60 * 1000);
 });

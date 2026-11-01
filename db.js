@@ -188,7 +188,10 @@ db.serialize(() => {
         duration: 'TEXT',       // e.g. "1.5 hours"
         registration_open: 'INTEGER NOT NULL DEFAULT 0',  // 1 = members can register online
         capacity: 'INTEGER',    // seat limit for registration (empty = no limit)
+        certificates: 'INTEGER NOT NULL DEFAULT 1',  // 1 = attendees get a participation certificate (emailed after the event)
     });
+    // when each attendee's certificate was emailed, so nobody gets it twice
+    addMissingColumns('attendance', { certificate_sent_at: 'DATETIME' });
 
     // members who registered for an event online (one registration per member per event)
     db.run(`CREATE TABLE IF NOT EXISTS event_registrations (

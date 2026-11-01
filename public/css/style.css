@@ -536,7 +536,8 @@ a.card.event-card { display: flex; gap: 16px; align-items: flex-start; }
 /* certificate page (prints on one landscape A4 sheet) */
 body.certificate-page { background: var(--bg-soft); }
 .cert-wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px; }
-.cert-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.cert-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.cert-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .certificate {
     background: #fff;
     aspect-ratio: 297 / 210;

@@ -523,6 +523,21 @@ body.admin.dark .admin-main a:not(.btn):not(.stat-card) { color: var(--orange-da
 .scan-error { border-color: var(--error); background: var(--error-soft); }
 @media (min-width: 900px) { .checkin-layout { grid-template-columns: 1.2fr 1fr; align-items: start; } }
 
+/* signature upload in Settings */
+.signature-row { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.signature-preview {
+    width: 200px;
+    height: 80px;
+    flex: none;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.signature-preview img { max-width: 92%; max-height: 90%; object-fit: contain; }
+
 /* ---------- membership card (prints at real ID-card size) ---------- */
 
 body.card-page { background: var(--bg-soft); }
@@ -530,63 +545,137 @@ body.card-page { background: var(--bg-soft); }
 .card-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
 .card-sheet { display: flex; flex-direction: column; align-items: center; gap: 8mm; }
 .card-pair { display: flex; flex-wrap: wrap; justify-content: center; gap: 6mm; break-inside: avoid; }
+/* The club's card design. Every size is in mm on a real ID card (85.6 x 54 mm), measured from the design. */
 .id-card {
+    --idc-orange: #f37a30;
+    position: relative;
     width: 85.6mm;
     height: 54mm;
     margin: 0;
     background: #fff;
-    color: #222;
-    border-radius: 3mm;
+    color: #1a1a1a;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
-    font-family: "Inter", sans-serif;
+    font-family: "Nunito", "Segoe UI", sans-serif;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
 }
-.id-card-top { display: flex; align-items: center; gap: 2.5mm; background: #e8601c; color: #fff; padding: 2mm 3mm; }
-.id-card-top img { width: 9mm; height: 9mm; object-fit: contain; background: #fff; border-radius: 50%; padding: 0.6mm; }
-.id-card-top b { display: block; font-family: "Poppins", sans-serif; font-size: 3.2mm; letter-spacing: 0.2mm; }
-.id-card-top span { font-size: 2.3mm; opacity: 0.9; }
-.id-card-body { flex: 1; display: flex; align-items: center; gap: 2.5mm; padding: 2mm 3mm; }
-.id-card-photo {
-    width: 18mm;
-    height: 23mm;
-    border-radius: 1.5mm;
+
+/* front */
+.idc-logo { position: absolute; left: 2.6mm; top: 2.2mm; width: 13.5mm; height: 12.2mm; object-fit: contain; }
+.idc-title {
+    position: absolute;
+    left: 16.5mm;
+    right: 1.5mm;
+    top: 4.1mm;
+    text-align: center;
+    color: var(--idc-orange);
+    font-size: 3.55mm;
+    font-weight: 800;
+    line-height: 1.18;
+}
+.idc-pill {
+    position: absolute;
+    left: 30.1mm;
+    top: 17mm;
+    width: 25.1mm;
+    height: 4.2mm;
+    border-radius: 2.1mm;
+    background: #a8a9ab;
+    color: #fff;
+    font-size: 2.05mm;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+}
+.idc-photo {
+    position: absolute;
+    left: 3.3mm;
+    top: 23.7mm;
+    width: 17mm;
+    height: 20.3mm;
+    border: 0.3mm solid var(--idc-orange);
+    border-radius: 0.6mm;
     overflow: hidden;
     background: #fdeee6;
     color: #c74e12;
     display: flex;
     align-items: center;
     justify-content: center;
-    flex: none;
-    font-family: "Poppins", sans-serif;
     font-size: 6mm;
+    font-weight: 800;
 }
-.id-card-photo img { width: 100%; height: 100%; object-fit: cover; }
-.id-card-details { flex: 1; margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 0.6mm 2mm; font-size: 2.4mm; min-width: 0; }
-.id-card-details dt { color: #777; }
-.id-card-details dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-.id-card-qr { width: 17mm; height: 17mm; flex: none; }
-.id-card-bottom { display: flex; justify-content: space-between; background: #2b2b2b; color: #ddd; font-size: 2mm; padding: 1.2mm 3mm; }
-
-/* back side */
-.id-card-back { padding: 0; }
-.back-head {
-    background: #2b2b2b;
+.idc-photo img { width: 100%; height: 100%; object-fit: cover; }
+/* label column, then ": value"; rows 4.2 mm apart */
+.idc-fields {
+    position: absolute;
+    left: 23.3mm;
+    right: 2mm;
+    top: 23.9mm;
+    margin: 0;
+    display: grid;
+    grid-template-columns: 14.9mm 1fr;
+    grid-auto-rows: 4.2mm;
+    align-items: center;
+    font-size: 2.2mm;
+    font-weight: 800;
+    color: #111;
+}
+.idc-fields dd { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.idc-fields dd::before { content: ":"; display: inline-block; width: 1.7mm; }
+/* the signature sits below the CLUB ID row, so only the first three values may run that far right */
+.idc-fields dd:last-of-type { max-width: 27mm; }
+/* a very long name: two lines inside its 4.2 mm row, the second line lined up after the colon */
+.idc-fields dd.idc-name-wrap {
+    white-space: normal;
+    line-height: 1.12;
+    max-height: 4.2mm;
+    padding-left: 1.7mm;
+    text-indent: -1.7mm;
+}
+/* the colon would inherit the hanging indent and slide out of view */
+.idc-fields dd.idc-name-wrap::before { text-indent: 0; }
+.idc-sign {
+    position: absolute;
+    left: 67.2mm;
+    width: 14.3mm;
+    top: 36.4mm;
+    height: 9.2mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    font-size: 1.65mm;
+    font-weight: 600;
+}
+.idc-sign img { flex: 1; min-height: 0; max-width: 100%; object-fit: contain; margin-bottom: 0.3mm; }
+.idc-sign span { width: 100%; text-align: center; border-top: 0.25mm solid #1a1a1a; padding-top: 0.3mm; }
+.idc-band {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 5.9mm;
+    background: var(--idc-orange);
     color: #fff;
-    font-family: "Poppins", sans-serif;
-    font-size: 2.8mm;
-    letter-spacing: 0.3mm;
-    text-align: center;
-    padding: 1.8mm 3mm;
+    font-size: 2.85mm;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
-.back-rules { margin: 0; padding: 2.2mm 3mm 0 7mm; font-size: 2.3mm; line-height: 1.45; flex: 1; overflow: hidden; }
-.back-rules li::marker { color: #e8601c; }
-.back-return { padding: 0 3mm 1.5mm; font-size: 2.1mm; line-height: 1.4; color: #444; display: flex; flex-direction: column; }
-.back-return b { color: #222; }
-.back-foot { background: #e8601c; color: #fff; font-size: 2mm; text-align: center; padding: 1.2mm 3mm; }
+
+/* back */
+.idc-back { padding: 2.6mm 5mm 0 4.3mm; font-size: 1.8mm; line-height: 1.6; color: #1a1a1a; }
+.idc-back p { margin: 0 0 1.5mm; }
+.idc-nb { display: block; font-size: 1.85mm; font-weight: 800; line-height: 1.5; }
+.idc-back .idc-club { margin-bottom: 1.4mm; font-weight: 800; }
+.idc-back .idc-contact { margin: 0; line-height: 1.55; max-width: 60mm; }
+.idc-qr { position: absolute; right: 5.4mm; bottom: 1.3mm; display: flex; flex-direction: column; align-items: center; gap: 0.6mm; }
+.idc-qr img { width: 14.1mm; height: 14.1mm; image-rendering: pixelated; }
+.idc-qr b { font-size: 1.6mm; font-weight: 800; letter-spacing: 0.05mm; }
 
 @media print {
     @page { size: A4; margin: 12mm; }

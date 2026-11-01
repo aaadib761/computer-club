@@ -80,6 +80,7 @@ list.addEventListener('click', async (e) => {
         document.getElementById('event-dialog-title').textContent = 'Edit event';
         fillForm(form, { ...event, ...splitDate(event.date) });
         form.elements.registration_open.checked = !!event.registration_open;
+        form.elements.certificates.checked = event.certificates !== 0;
         openModal(dialog);
     }
 
@@ -112,6 +113,7 @@ form.addEventListener('submit', (e) => {
         duration: data.duration || null,
         registration_open: form.elements.registration_open.checked,
         capacity: data.capacity ? Number(data.capacity) : null,
+        certificates: form.elements.certificates.checked,
     };
     submitting(form, async () => {
         if (editingId) {
