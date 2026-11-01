@@ -165,3 +165,7 @@ loadEvent().then(found => {
     loadAttendance();
     loadPhotos();
 });
+
+// everyone who registered or was marked, as Excel, CSV or PDF
+document.getElementById('participants-download')
+    .replaceWith(downloadMenu('participants', { label: '⬇️ Download participants', small: true, getParams: () => ({ event: eventId }) }));

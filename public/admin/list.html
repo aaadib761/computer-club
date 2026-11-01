@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>List | NDUB Admin</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="../images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin card-page">
+    <!-- a printable copy of one of the download lists: list.html?type=members (same options as /export) -->
+    <main class="card-wrap list-wrap">
+        <div class="card-toolbar no-print">
+            <a href="#" id="back-link">&larr; Back</a>
+            <span class="meta" id="list-count"></span>
+            <button class="btn" id="print-btn" disabled>🖨️ Print / Save as PDF</button>
+        </div>
+        <div id="list-message" class="no-print"></div>
+
+        <div class="print-sheet hidden" id="print-sheet">
+            <header class="print-head">
+                <img src="../images/logo.png" alt="">
+                <div>
+                    <p class="print-club">Notre Dame University Bangladesh Computer Club</p>
+                    <h1 id="list-title"></h1>
+                    <p class="meta" id="list-subtitle"></p>
+                </div>
+            </header>
+            <div id="list-body"></div>
+        </div>
+
+        <p class="meta no-print" style="margin-top: 16px;">
+            In the print window choose <b>"Save as PDF"</b> as the printer to download a PDF file.
+        </p>
+    </main>
+
+    <script src="../js/common.js"></script>
+    <script src="admin.js"></script>
+    <script src="pages/list.js"></script>
+</body>
+</html>

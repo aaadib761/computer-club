@@ -154,6 +154,16 @@ document.getElementById('print-cards-btn').addEventListener('click', async () =>
     });
     if (ok) window.open(`card.html?ids=${withClubId.map(m => m.id).join(',')}`, '_blank', 'noopener');
 });
+// download the members shown (search and filters applied) as Excel, CSV or PDF
+document.getElementById('print-cards-btn').before(downloadMenu('members', {
+    getParams() {
+        if (!lastShown.length) {
+            toast('No members are shown, so there is nothing to download. Clear the search or filters first.', 'error');
+            return null;
+        }
+        return lastShown.length === members.length ? {} : { ids: lastShown.map(m => m.id).join(',') };
+    },
+}));
 FILTERS.forEach(({ select }) => select.addEventListener('change', render));
 clubIdFilter.addEventListener('change', render);
 feeFilter.addEventListener('change', render);

@@ -268,10 +268,20 @@ a.card.event-card { display: flex; gap: 16px; align-items: flex-start; }
 /* committee page */
 .term-label { color: var(--orange-dark); font-weight: 600; margin: 0 0 4px; }
 .past-term { border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); margin-bottom: 10px; }
-.past-term summary { cursor: pointer; padding: 14px 16px; font-weight: 600; }
-.past-term ul { margin: 0; padding: 0 16px 14px 36px; }
-.past-term li { padding: 3px 0; }
-.past-term li span { color: var(--muted); }
+.past-term summary { cursor: pointer; padding: 14px 16px; font-weight: 600; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.past-term summary::before { content: "▸"; color: var(--orange-dark); transition: transform 0.15s; }
+.past-term[open] summary::before { transform: rotate(90deg); }
+.past-term summary > span { flex: 1; }
+.past-term summary small { color: var(--muted); font-weight: 400; }
+.past-term summary::-webkit-details-marker { display: none; }
+.past-term summary { list-style: none; }
+.badge-current { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; background: var(--orange-dark); color: #fff; vertical-align: middle; }
+.panel-table-wrap { overflow-x: auto; padding: 0 16px 14px; }
+.panel-table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.panel-table th, .panel-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.panel-table th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.panel-table td:first-child { font-weight: 600; color: var(--orange-dark); }
+.panel-table tbody tr:last-child td { border-bottom: 0; }
 
 /* event details box on the event page */
 .detail-grid { display: grid; gap: 12px; grid-template-columns: 1fr; margin-bottom: 20px; }

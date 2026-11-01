@@ -365,6 +365,77 @@ function addPasswordToggles() {
 addPasswordToggles();
 applyTheme();
 
+// ---------- downloads ----------
+
+// Downloads a file from an admin-only URL (a plain link can't send the login token).
+async function downloadFile(button, url, fallbackName) {
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Preparing…';
+    try {
+        const admin = currentAdmin();
+        if (!admin) return logout('expired');
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${admin.token}` } });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Download failed');
+        const name = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || fallbackName;
+        const blobUrl = URL.createObjectURL(await res.blob());
+        const link = Object.assign(document.createElement('a'), { href: blobUrl, download: name });
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        toast(`Downloaded ${name}`);
+    } catch (err) {
+        toast(err.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = label;
+    }
+}
+
+const DOWNLOAD_FORMATS = [
+    { format: 'xlsx', label: '📗 Excel (.xlsx)' },
+    { format: 'csv', label: '📄 CSV' },
+    { format: 'pdf', label: '📕 PDF / Print' },
+];
+
+// A "Download" button with a menu of formats for one of the /export lists.
+// getParams() returns extra query values at the moment of download, e.g. { event: 7 } or { ids: '1,2,3' },
+// or null to cancel (after telling the user why).
+function downloadMenu(type, { label = '⬇️ Download', getParams = () => ({}), small = false } = {}) {
+    const menu = document.createElement('details');
+    menu.className = 'download-menu';
+    menu.innerHTML = `
+        <summary class="btn btn-ghost${small ? ' btn-sm' : ''}">${escapeHtml(label)}</summary>
+        <div class="download-options">
+            ${DOWNLOAD_FORMATS.map(f => `<button type="button" data-format="${f.format}">${f.label}</button>`).join('')}
+        </div>`;
+    menu.addEventListener('click', (e) => {
+        const option = e.target.closest('[data-format]');
+        if (!option) return;
+        menu.open = false;
+        const extra = getParams();
+        if (extra === null) return;
+        const params = new URLSearchParams(extra);
+        if (option.dataset.format === 'pdf') {
+            // the print page shows the list as a table; "Save as PDF" in the print window makes the PDF
+            params.set('type', type);
+            window.open(`list.html?${params}`, '_blank');
+            return;
+        }
+        params.set('format', option.dataset.format);
+        downloadFile(menu.querySelector('summary'), `/export/${type}?${params}`, `${type}.${option.dataset.format}`);
+    });
+    return menu;
+}
+
+// only one menu open at a time, and a click anywhere else closes it
+document.addEventListener('click', (e) => {
+    document.querySelectorAll('details.download-menu[open]').forEach(menu => {
+        if (!menu.contains(e.target)) menu.open = false;
+    });
+});
+
 function statusBadge(status) {
     return `<span class="badge badge-${escapeHtml(status)}">${escapeHtml(status)}</span>`;
 }

@@ -170,12 +170,14 @@
         <!-- export -->
         <section class="settings-section" data-roles="owner">
             <h2>📥 Export data</h2>
-            <p class="meta">Downloads a spreadsheet (CSV) that opens in Excel or Google Sheets. Handy for backups and reports.</p>
+            <p class="meta">Download a list as Excel, CSV (opens in Excel or Google Sheets) or PDF. Handy for backups, reports and printing.
+                Event participants are on each event's page.</p>
             <div class="export-grid">
-                <button class="btn btn-ghost" data-export="members">👥 Members</button>
-                <button class="btn btn-ghost" data-export="attendance">✅ Attendance</button>
-                <button class="btn btn-ghost" data-export="join-requests">✋ Join requests</button>
-                <button class="btn btn-ghost" data-export="messages">✉️ Messages</button>
+                <div data-export="members" data-label="👥 Members"></div>
+                <div data-export="committees" data-label="🏛️ Committees"></div>
+                <div data-export="attendance" data-label="✅ Attendance"></div>
+                <div data-export="join-requests" data-label="✋ Join requests"></div>
+                <div data-export="messages" data-label="✉️ Messages"></div>
             </div>
         </section>
 

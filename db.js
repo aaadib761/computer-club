@@ -235,7 +235,8 @@ db.serialize(() => {
         if (err) console.error('Error creating activity_log table:', err.message);
     });
 
-    // snapshots of past committees: the term name plus a frozen list of who held which position
+    // past committees: the term name plus a frozen list of who held which position
+// (archived from the current committee, or typed in for older committees)
     db.run(`CREATE TABLE IF NOT EXISTS committee_archive (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         term TEXT NOT NULL,
@@ -244,6 +245,7 @@ db.serialize(() => {
     )`, (err) => {
         if (err) console.error('Error creating committee_archive table:', err.message);
     });
+    addMissingColumns('committee_archive', { session: 'TEXT' });   // e.g. "2024-2025"
 });
 
 // Adds any columns from `wanted` that the table doesn't have yet, then calls `done`.

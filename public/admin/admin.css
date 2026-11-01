@@ -690,6 +690,75 @@ body.card-page { background: var(--bg-soft); }
     .id-card { box-shadow: none; outline: 0.2mm dashed #999; }
 }
 
+/* ---------- downloads (Excel / CSV / PDF menu) ---------- */
+
+.download-menu { position: relative; display: inline-block; }
+.download-menu > summary { list-style: none; }
+.download-menu > summary::-webkit-details-marker { display: none; }
+.download-menu > summary::after { content: " ▾"; font-size: 0.8em; }
+.download-options {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 190px;
+    display: flex; flex-direction: column; padding: 6px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+.download-options button {
+    border: 0; background: none; color: var(--text); font: inherit; text-align: left;
+    padding: 9px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.download-options button:hover, .download-options button:focus-visible { background: var(--bg-soft); }
+.export-grid .download-menu > summary { width: 100%; }
+
+/* the printable list (list.html) */
+.list-wrap { max-width: 1100px; width: 100%; box-sizing: border-box; }
+.print-sheet { background: #fff; color: #1a1a1a; padding: 24px; border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08); }
+.print-head { display: flex; align-items: center; gap: 14px; padding-bottom: 12px; margin-bottom: 16px; border-bottom: 2px solid #f37a30; }
+.print-head img { width: 54px; height: 54px; object-fit: contain; }
+.print-head h1 { margin: 0; font-size: 1.4rem; color: #1a1a1a; }
+.print-head .meta, .print-group .meta { color: #666; margin: 2px 0 0; }
+.print-club { margin: 0; font-weight: 600; color: #f37a30; font-size: 0.9rem; }
+.print-group { break-inside: avoid-page; margin-bottom: 18px; }
+.print-group h2 { font-size: 1.05rem; margin: 0 0 8px; color: #1a1a1a; }
+.print-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+/* long emails and IDs may wrap inside a cell, so a wide list still fits the paper */
+.print-table th, .print-table td { border: 1px solid #d6d6d6; padding: 5px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.print-table th { background: #fde3d2; font-weight: 600; overflow-wrap: normal; }
+.print-table .nowrap { white-space: nowrap; }   /* IDs, phone numbers and dates read badly when split */
+.print-table tbody tr:nth-child(even) td { background: #fafafa; }
+.print-table td:first-child, .print-table th:first-child { width: 1%; white-space: nowrap; color: #666; }
+.print-table thead { display: table-header-group; }   /* the header row repeats on every printed page */
+.print-table tr { break-inside: avoid; }
+
+@media print {
+    .list-wrap { max-width: none; }
+    .print-sheet { box-shadow: none; padding: 0; border-radius: 0; }
+    .print-table { font-size: 8.5pt; }
+    .print-table th, .print-table td { padding: 3px 5px; }
+    .print-table, .print-table th { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+
+/* ---------- committee panel editor (About & Advisors) ---------- */
+
+.panel-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.panel-row { display: grid; grid-template-columns: 1.2fr 1.6fr 1fr 0.8fr auto; gap: 6px; align-items: center; }
+.panel-row input { min-width: 0; padding: 8px 10px; }
+.panel-head { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.panel-row .icon-btn { border: 0; background: none; cursor: pointer; font-size: 1rem; padding: 4px 6px; color: var(--muted); border-radius: 6px; }
+.panel-row .icon-btn:hover { background: var(--bg-soft); color: var(--text); }
+.panel-paste { margin-top: 12px; }
+.panel-paste summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
+.panel-paste textarea { margin-top: 8px; width: 100%; min-height: 120px; font-family: inherit; }
+dialog.modal.modal-wide { width: min(860px, calc(100% - 24px)); max-width: none; }
+@media (max-width: 640px) {
+    /* position + name on top, department + batch below, remove button on the right */
+    .panel-row { grid-template-columns: 1fr 1fr auto; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+    .panel-row [name="position"] { grid-area: 1 / 1; }
+    .panel-row [name="name"] { grid-area: 1 / 2; }
+    .panel-row [name="department"] { grid-area: 2 / 1; }
+    .panel-row [name="batch"] { grid-area: 2 / 2; }
+    .panel-row .icon-btn { grid-area: 1 / 3 / 3 / 4; }
+    .panel-head { display: none; }
+}
+
 /* ---------- login ---------- */
 
 .login-wrap {

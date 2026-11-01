@@ -16,6 +16,7 @@ const mailer = require('./mailer');
 const { passwordProblem, LoginLockout } = require('./security');
 const twofactor = require('./twofactor');
 const { renderCertificatePng } = require('./certificate-image');
+const { toCsv, toXlsx } = require('./exporter');
 
 const UPLOAD_TYPE_ERROR = 'Only JPEG, PNG, and WEBP images are allowed';
 const INVALID_IMAGE_ERROR = "That file isn't a valid image.";
@@ -397,6 +398,7 @@ const ACTIVITY = {
     'POST /advisors/:id/photo': ['content', 'Uploaded advisor photo'],
     'DELETE /advisors/:id/photo': ['content', 'Removed advisor photo'],
     'POST /committee-archive': ['content', 'Archived committee'],
+    'PUT /committee-archive/:id': ['content', 'Edited committee panel'],
     'DELETE /committee-archive/:id': ['content', 'Deleted archived committee'],
     'PUT /settings': ['settings', 'Changed settings'],
     'POST /settings/signature': ['settings', 'Uploaded card signature'],
@@ -1838,39 +1840,129 @@ app.delete('/advisors/:id/photo', verifyAdmin, (req, res) => {
     });
 });
 
-// past committees — a frozen copy of who held which position when a term ended
+// past committees: a frozen panel list (position, name, department, batch) per term.
+// Made by archiving the current committee when a term ends, or typed in by hand for older committees.
+
+const PANEL_FIELDS = { position: 80, name: 100, department: 60, batch: 30 };
+const MAX_PANEL_SIZE = 100;
+
+// "12th Executive Committee" -> 12, so committees list in order even when typed in out of order
+function termNumber(term) {
+    const match = String(term).match(/\d+/);
+    return match ? Number(match[0]) : null;
+}
+
+function archiveRow(r) {
+    return { id: r.id, term: r.term, session: r.session || '', archived_at: r.archived_at, members: JSON.parse(r.members_json) };
+}
+
+// highest term number first; terms without a number (or the same one) newest first
+function sortPanels(rows) {
+    const no = r => termNumber(r.term) ?? -1;
+    return rows.sort((a, b) => no(b) - no(a) || String(b.archived_at).localeCompare(String(a.archived_at)) || b.id - a.id);
+}
+
+// Checks a typed-in panel list; returns [error, cleanRows].
+function readPanel(members) {
+    if (!Array.isArray(members)) return ['members must be a list.'];
+    if (members.length > MAX_PANEL_SIZE) return [`A committee can have at most ${MAX_PANEL_SIZE} people.`];
+    const rows = [];
+    for (const [i, m] of members.entries()) {
+        if (!m || typeof m !== 'object') return [`Row ${i + 1} is not valid.`];
+        const row = {};
+        for (const [field, max] of Object.entries(PANEL_FIELDS)) {
+            const value = m[field] === undefined || m[field] === null ? '' : m[field];
+            if (typeof value !== 'string') return [`Row ${i + 1}: ${field} must be text.`];
+            if (value.trim().length > max) return [`Row ${i + 1}: ${field} must be at most ${max} characters.`];
+            row[field] = value.trim();
+        }
+        if (!row.name && !row.position && !row.department && !row.batch) continue;   // empty rows are skipped
+        if (!row.name || !row.position) return [`Row ${i + 1} needs both a position and a name.`];
+        rows.push(row);
+    }
+    if (!rows.length) return ['Add at least one person (position and name).'];
+    return [null, rows];
+}
+
+// The current committee (from members' positions) followed by every past one, newest first.
+async function committeePanels() {
+    const [settings, current, archive] = await Promise.all([
+        dbAll(`SELECT key, value FROM settings WHERE key IN ('committee_term', 'committee_session')`, []),
+        dbAll(`SELECT position, name, department, batch FROM members
+            WHERE position IS NOT NULL AND TRIM(position) != ''
+            ORDER BY position_rank IS NULL, position_rank, name COLLATE NOCASE`, []),
+        dbAll(`SELECT * FROM committee_archive`, []),
+    ]);
+    const setting = key => (settings.find(s => s.key === key) || {}).value || '';
+    const panels = sortPanels(archive).map(archiveRow);
+    if (current.length) {
+        panels.unshift({ id: 'current', term: setting('committee_term') || 'Current committee', session: setting('committee_session'),
+            current: true, members: current.map(m => ({ position: m.position, name: m.name, department: m.department || '', batch: m.batch || '' })) });
+    }
+    return panels;
+}
 
 app.get('/committee-archive', (req, res) => {
-    db.all(`SELECT * FROM committee_archive ORDER BY archived_at DESC, id DESC`, [], (err, rows) => {
+    db.all(`SELECT * FROM committee_archive`, [], (err, rows) => {
         if (err) {
             console.error('Error fetching committee archive:', err.message);
             return res.status(500).json({ error: 'Failed to fetch past committees' });
         }
-        res.status(200).json(rows.map(r => ({ id: r.id, term: r.term, archived_at: r.archived_at, members: JSON.parse(r.members_json) })));
+        res.status(200).json(sortPanels(rows).map(archiveRow));
     });
 });
 
-app.post('/committee-archive', verifyAdmin, (req, res) => {
-    const invalid = checkFields(req.body, { term: { required: true, max: 80 } });
+// { term, session } archives the current committee; { term, session, members: [...] } adds an older one by hand
+app.post('/committee-archive', verifyAdmin, async (req, res) => {
+    const invalid = checkFields(req.body, { term: { required: true, max: 80 }, session: { max: 40 } });
     if (invalid) return res.status(400).json({ error: invalid });
-    // names and positions only: the archive is public, and department/batch are private
-    const query = `SELECT name, position FROM members
-        WHERE position IS NOT NULL AND TRIM(position) != ''
-        ORDER BY position_rank IS NULL, position_rank, name COLLATE NOCASE`;
-    db.all(query, [], (err, members) => {
-        if (err) {
+    let members;
+    if (req.body.members !== undefined) {
+        const [problem, rows] = readPanel(req.body.members);
+        if (problem) return res.status(400).json({ error: problem });
+        members = rows;
+    } else {
+        try {
+            // names and positions only: the archive is public, and members' department/batch are private
+            // (they can be added afterwards with Edit)
+            members = (await dbAll(`SELECT position, name FROM members
+                WHERE position IS NOT NULL AND TRIM(position) != ''
+                ORDER BY position_rank IS NULL, position_rank, name COLLATE NOCASE`, []))
+                .map(m => ({ position: m.position, name: m.name, department: '', batch: '' }));
+        } catch (err) {
             console.error('Error reading committee:', err.message);
             return res.status(500).json({ error: 'Failed to archive committee' });
         }
         if (!members.length) return res.status(400).json({ error: 'There is no committee to archive yet.' });
-        db.run(`INSERT INTO committee_archive (term, members_json) VALUES (?, ?)`, [req.body.term.trim(), JSON.stringify(members)], function (err) {
+    }
+    const term = req.body.term.trim();
+    db.run(`INSERT INTO committee_archive (term, session, members_json) VALUES (?, ?, ?)`,
+        [term, cleanText(req.body.session), JSON.stringify(members)], function (err) {
             if (err) {
                 console.error('Error archiving committee:', err.message);
-                return res.status(500).json({ error: 'Failed to archive committee' });
+                return res.status(500).json({ error: 'Failed to save committee' });
             }
             res.status(201).json({ id: this.lastID, members: members.length });
         });
-    });
+});
+
+app.put('/committee-archive/:id', verifyAdmin, (req, res) => {
+    const invalid = checkFields(req.body, { term: { required: true, max: 80 }, session: { max: 40 } });
+    if (invalid) return res.status(400).json({ error: invalid });
+    const [problem, members] = readPanel(req.body.members);
+    if (problem) return res.status(400).json({ error: problem });
+    const term = req.body.term.trim();
+    db.run(`UPDATE committee_archive SET term = ?, session = ?, members_json = ? WHERE id = ?`,
+        [term, cleanText(req.body.session), JSON.stringify(members), req.params.id], function (err) {
+            if (err) {
+                console.error('Error updating committee:', err.message);
+                res.status(500).json({ error: 'Failed to save committee' });
+            } else if (this.changes === 0) {
+                res.status(404).json({ error: 'Not found' });
+            } else {
+                res.status(200).json({ message: 'Saved', members: members.length });
+            }
+        });
 });
 
 app.delete('/committee-archive/:id', verifyAdmin, (req, res) => {
@@ -2052,14 +2144,14 @@ app.get('/calendar.ics', (req, res) => {
 // club info (Settings page) — public to read, admins to edit
 
 const SETTING_KEYS = ['contact_email', 'contact_phone', 'address', 'website', 'facebook', 'instagram', 'linkedin', 'github', 'youtube',
-    'about_text', 'objectives', 'founded_year', 'committee_term', 'membership_fee', 'card_back_text', 'card_valid_until'];
+    'about_text', 'objectives', 'founded_year', 'committee_term', 'committee_session', 'membership_fee', 'card_back_text', 'card_valid_until'];
 const LINK_KEYS = ['website', 'facebook', 'instagram', 'linkedin', 'github', 'youtube'];
 // set only by uploading a picture (POST /settings/signature), never typed in, but readable like the rest
 const UPLOADED_SETTING_KEYS = ['card_signature'];
 // the About page texts are content that editors manage; contact details, fee and card settings are for owners
-const EDITOR_SETTING_KEYS = ['about_text', 'objectives', 'founded_year', 'committee_term'];
+const EDITOR_SETTING_KEYS = ['about_text', 'objectives', 'founded_year', 'committee_term', 'committee_session'];
 // most settings are short; the About page texts can be longer
-const SETTING_MAX = { about_text: 3000, objectives: 2000, committee_term: 80, card_back_text: 600 };
+const SETTING_MAX = { about_text: 3000, objectives: 2000, committee_term: 80, committee_session: 40, card_back_text: 600 };
 
 app.get('/settings', (req, res) => {
     db.all(`SELECT key, value FROM settings`, [], (err, rows) => {
@@ -2793,42 +2885,137 @@ app.delete('/members/:id/portal', verifyAdmin, (req, res) => {
     });
 });
 
-// spreadsheet (CSV) downloads for Settings > Export data
+// ---------- list downloads ----------
+// Every list can be downloaded as Excel (.xlsx) or CSV; "json" feeds the admin print page, which saves as PDF.
+// GET /export/members?format=xlsx            (optional &ids=1,2,3 for just the members shown on the Members page)
+// GET /export/participants?event=7&format=csv
+
+const MEMBER_COLUMNS = [
+    ['name', 'Name'], ['student_id', 'Student ID'], ['club_id', 'Club ID'], ['department', 'Department'], ['batch', 'Batch'],
+    ['email', 'Email'], ['phone', 'Phone'],
+];
 
 const EXPORTS = {
-    members: `SELECT id, name, student_id, club_id, department, batch, email, phone, position, position_rank,
-        CASE fee_paid WHEN 1 THEN 'paid' ELSE 'unpaid' END AS fee, fee_paid_at, fee_note, created_at FROM members ORDER BY name`,
-    attendance: `SELECT e.date AS event_date, e.title AS event, m.name AS member, m.student_id, m.club_id, m.department, m.batch, m.email, a.status
-        FROM attendance a JOIN events e ON e.id = a.event_id JOIN members m ON m.id = a.member_id
-        ORDER BY e.date DESC, m.name`,
-    'join-requests': `SELECT id, name, student_id, department, batch, email, phone, reason, status, created_at FROM join_requests ORDER BY created_at DESC`,
-    messages: `SELECT id, name, email, message, created_at FROM contact_messages ORDER BY created_at DESC`,
+    members: {
+        title: 'Members',
+        roles: ['owner', 'editor'],
+        columns: [...MEMBER_COLUMNS, ['position', 'Committee position'], ['fee', 'Fee'], ['fee_paid_at', 'Fee paid on'], ['joined', 'Joined']],
+        async load(req) {
+            const ids = String(req.query.ids || '').split(',').map(Number).filter(id => Number.isInteger(id) && id > 0);
+            const rows = await dbAll(`SELECT id, name, student_id, club_id, department, batch, email, phone, position,
+                CASE fee_paid WHEN 1 THEN 'Paid' ELSE 'Not paid' END AS fee, SUBSTR(fee_paid_at, 1, 10) AS fee_paid_at,
+                SUBSTR(created_at, 1, 10) AS joined
+                FROM members ORDER BY name COLLATE NOCASE`, []);
+            if (!ids.length) return { rows };
+            const wanted = new Set(ids);
+            return { rows: rows.filter(r => wanted.has(r.id)), subtitle: 'Members shown on the Members page' };
+        },
+    },
+    participants: {
+        title: 'Participants',
+        roles: ['owner', 'editor'],
+        columns: [...MEMBER_COLUMNS, ['registered', 'Registered'], ['attendance', 'Attendance']],
+        async load(req) {
+            const event = await dbGet(`SELECT id, title, date FROM events WHERE id = ?`, [Number(req.query.event) || 0]);
+            if (!event) return null;
+            // everyone who registered or has an attendance mark for this event
+            const rows = await dbAll(`SELECT m.name, m.student_id, m.club_id, m.department, m.batch, m.email, m.phone,
+                CASE WHEN r.id IS NULL THEN 'No' ELSE 'Yes' END AS registered,
+                CASE a.status WHEN 'present' THEN 'Present' WHEN 'late' THEN 'Late' WHEN 'absent' THEN 'Absent' ELSE '' END AS attendance
+                FROM members m
+                LEFT JOIN event_registrations r ON r.member_id = m.id AND r.event_id = ?
+                LEFT JOIN attendance a ON a.member_id = m.id AND a.event_id = ?
+                WHERE r.id IS NOT NULL OR a.id IS NOT NULL
+                ORDER BY m.name COLLATE NOCASE`, [event.id, event.id]);
+            return { rows, title: `Participants: ${event.title}`, subtitle: String(event.date).slice(0, 10), fileTag: event.title };
+        },
+    },
+    committees: {
+        title: 'Executive committees',
+        roles: ['owner', 'editor'],
+        columns: [['committee', 'Committee'], ['session', 'Session'], ['position', 'Position'], ['name', 'Name'], ['department', 'Department'], ['batch', 'Batch']],
+        async load(req) {
+            let panels = await committeePanels();
+            // one committee only: ?committee=current or ?committee=<archive id>
+            if (req.query.committee) panels = panels.filter(p => String(p.id) === String(req.query.committee));
+            if (!panels.length) return null;
+            const rows = panels.flatMap(p => p.members.map(m => ({ committee: p.term, session: p.session, ...m })));
+            return panels.length === 1 ? { rows, title: panels[0].term, subtitle: panels[0].session, fileTag: panels[0].term } : { rows };
+        },
+    },
+    attendance: {
+        title: 'Attendance',
+        roles: ['owner'],
+        columns: [['event_date', 'Event date'], ['event', 'Event'], ['name', 'Name'], ['student_id', 'Student ID'], ['club_id', 'Club ID'],
+            ['department', 'Department'], ['batch', 'Batch'], ['email', 'Email'], ['status', 'Status']],
+        async load() {
+            return { rows: await dbAll(`SELECT SUBSTR(e.date, 1, 10) AS event_date, e.title AS event, m.name, m.student_id, m.club_id,
+                m.department, m.batch, m.email, a.status
+                FROM attendance a JOIN events e ON e.id = a.event_id JOIN members m ON m.id = a.member_id
+                ORDER BY e.date DESC, m.name COLLATE NOCASE`, []) };
+        },
+    },
+    'join-requests': {
+        title: 'Join requests',
+        roles: ['owner'],
+        columns: [['name', 'Name'], ['student_id', 'Student ID'], ['department', 'Department'], ['batch', 'Batch'], ['email', 'Email'],
+            ['phone', 'Phone'], ['reason', 'Reason'], ['status', 'Status'], ['sent', 'Sent']],
+        async load() {
+            return { rows: await dbAll(`SELECT name, student_id, department, batch, email, phone, reason, status, SUBSTR(created_at, 1, 10) AS sent
+                FROM join_requests ORDER BY created_at DESC`, []) };
+        },
+    },
+    messages: {
+        title: 'Messages',
+        roles: ['owner'],
+        columns: [['name', 'Name'], ['email', 'Email'], ['message', 'Message'], ['sent', 'Sent']],
+        async load() {
+            return { rows: await dbAll(`SELECT name, email, message, SUBSTR(created_at, 1, 10) AS sent
+                FROM contact_messages ORDER BY created_at DESC`, []) };
+        },
+    },
 };
 
-function csvCell(value) {
-    let text = value === null || value === undefined ? '' : String(value);
-    // stop spreadsheet apps from running text that looks like a formula
-    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-    return `"${text.replace(/"/g, '""')}"`;
-}
+const EXPORT_FORMATS = ['xlsx', 'csv', 'json'];
 
-app.get('/export/:type', verifyOwner, (req, res) => {
-    const query = EXPORTS[req.params.type];
-    if (!query) return res.status(404).json({ error: 'Unknown export' });
+app.get('/export/:type', verifyAnyAdmin, async (req, res) => {
+    const list = EXPORTS[req.params.type];
+    if (!list) return res.status(404).json({ error: 'Unknown export' });
+    if (!list.roles.includes(req.user.role)) {
+        return res.status(403).json({ error: 'Your admin role doesn\'t allow this. Ask an owner if you need it.' });
+    }
+    const format = req.query.format || 'csv';
+    if (!EXPORT_FORMATS.includes(format)) return res.status(400).json({ error: 'format must be xlsx, csv or json.' });
 
-    db.all(query, [], (err, rows) => {
-        if (err) {
-            console.error('Error exporting data:', err.message);
-            return res.status(500).json({ error: 'Failed to export data' });
-        }
-        const headers = rows.length ? Object.keys(rows[0]) : ['no data'];
-        const lines = [headers.map(csvCell).join(','), ...rows.map(row => headers.map(h => csvCell(row[h])).join(','))];
-        const date = new Date().toISOString().slice(0, 10);
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="ndubcc-${req.params.type}-${date}.csv"`);
-        // the BOM makes Excel read Bangla and other non-English text correctly
-        res.send('﻿' + lines.join('\r\n'));
-    });
+    let result;
+    try {
+        result = await list.load(req);
+    } catch (err) {
+        console.error('Error exporting data:', err.message);
+        return res.status(500).json({ error: 'Failed to export data' });
+    }
+    if (!result) return res.status(404).json({ error: 'Nothing found to download.' });
+
+    const title = result.title || list.title;
+    const columns = list.columns.map(([key, label]) => ({ key, label }));
+    // drop the internal id the members query needs for ?ids=
+    const rows = result.rows.map(({ id, ...row }) => row);
+    res.locals.activity = `${title} (${format === 'json' ? 'PDF' : format.toUpperCase()}, ${rows.length} rows)`;
+
+    if (format === 'json') {
+        return res.json({ title, subtitle: result.subtitle || '', columns, rows, generated_at: new Date().toISOString() });
+    }
+    const slug = text => String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const date = new Date().toISOString().slice(0, 10);
+    const name = ['ndubcc', req.params.type, result.fileTag && slug(result.fileTag).slice(0, 50), date].filter(Boolean).join('-');
+    if (format === 'xlsx') {
+        res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${name}.xlsx"`);
+        return res.send(toXlsx(list.title, columns, rows));
+    }
+    res.type('text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}.csv"`);
+    res.send(toCsv(columns, rows));
 });
 
 // email: Settings shows whether Gmail is set up and can send a test message

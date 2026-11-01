@@ -243,34 +243,8 @@ darkToggle.addEventListener('change', () => setDarkMode(darkToggle.checked));
 
 // ---------- export and backups ----------
 
-// Downloads a file from an admin-only URL (a plain link can't send the login token).
-async function downloadFile(button, url, fallbackName) {
-    const label = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Preparing…';
-    try {
-        const admin = currentAdmin();
-        if (!admin) return logout('expired');
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${admin.token}` } });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Download failed');
-        const name = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/)?.[1] || fallbackName;
-        const blobUrl = URL.createObjectURL(await res.blob());
-        const link = Object.assign(document.createElement('a'), { href: blobUrl, download: name });
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-        toast(`Downloaded ${name}`);
-    } catch (err) {
-        toast(err.message, 'error');
-    } finally {
-        button.disabled = false;
-        button.textContent = label;
-    }
-}
-
-document.querySelectorAll('[data-export]').forEach(button => {
-    button.addEventListener('click', () => downloadFile(button, `/export/${button.dataset.export}`, 'export.csv'));
+document.querySelectorAll('[data-export]').forEach(box => {
+    box.replaceWith(downloadMenu(box.dataset.export, { label: box.dataset.label }));
 });
 
 // ---------- email ----------

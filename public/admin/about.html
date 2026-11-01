@@ -38,22 +38,35 @@
             </form>
         </section>
 
-        <!-- committee term -->
+        <!-- executive committees -->
         <section class="settings-section">
-            <h2>🏛️ Committee term</h2>
-            <p class="meta">The name shown above the committee, like "13th Executive Committee". When a term ends, archive it before changing positions, so it's kept under "Past committees".</p>
+            <h2>🏛️ Executive committees</h2>
+            <p class="meta">The current committee is everyone with a position in Members. When a term ends, archive it before changing positions,
+                so its panel list is kept. Older committees (like the 1st to 12th) can be typed in with "+ Add past committee".</p>
             <form id="term-form" class="card" novalidate>
                 <div class="form-message hidden" role="status"></div>
-                <div class="field">
-                    <label for="t-term">Current term name</label>
-                    <input id="t-term" name="committee_term" maxlength="80" placeholder="e.g. 13th Executive Committee">
+                <div class="field-row">
+                    <div class="field">
+                        <label for="t-term">Current term name</label>
+                        <input id="t-term" name="committee_term" maxlength="80" placeholder="e.g. 13th Executive Committee">
+                    </div>
+                    <div class="field">
+                        <label for="t-session">Session <small>(optional)</small></label>
+                        <input id="t-session" name="committee_session" maxlength="40" placeholder="e.g. 2025-2026">
+                    </div>
                 </div>
                 <div class="btn-group">
-                    <button class="btn" type="submit">Save term name</button>
+                    <button class="btn" type="submit">Save</button>
                     <button class="btn btn-ghost" type="button" id="archive-btn">🗄️ Archive current committee</button>
                 </div>
             </form>
-            <h3 style="margin-top: 20px;">Past committees</h3>
+            <div class="section-title" style="margin-top: 20px;">
+                <h3 style="margin: 0;">All committees</h3>
+                <div class="btn-group">
+                    <span id="committees-download"></span>
+                    <button class="btn btn-sm" type="button" id="add-committee-btn">+ Add past committee</button>
+                </div>
+            </div>
             <div id="archive" class="list"><div class="loading">Loading…</div></div>
         </section>
 
@@ -122,6 +135,39 @@
                 <span style="flex:1"></span>
                 <button type="button" class="btn btn-ghost" data-close>Cancel</button>
                 <button type="submit" class="btn">Upload</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog class="modal modal-wide" id="committee-dialog">
+        <form id="committee-form" novalidate>
+            <h2 id="committee-dialog-title">Add past committee</h2>
+            <div class="form-message hidden" role="status"></div>
+            <div class="field-row">
+                <div class="field">
+                    <label for="c-term">Committee name</label>
+                    <input id="c-term" name="term" required maxlength="80" placeholder="e.g. 12th Executive Committee">
+                </div>
+                <div class="field">
+                    <label for="c-session">Session <small>(optional)</small></label>
+                    <input id="c-session" name="session" maxlength="40" placeholder="e.g. 2024-2025">
+                </div>
+            </div>
+            <p class="hint">Panel list, in the order it should be shown (President first). Department and batch are optional and shown publicly.</p>
+            <div class="panel-row panel-head" aria-hidden="true">
+                <span>Position</span><span>Name</span><span>Department</span><span>Batch</span><span></span>
+            </div>
+            <div id="panel-rows" class="panel-rows"></div>
+            <button type="button" class="btn btn-sm btn-ghost" id="add-row-btn">+ Add person</button>
+            <details class="panel-paste">
+                <summary>Paste a whole list instead</summary>
+                <p class="hint">One person per line: <b>Position, Name, Department, Batch</b> (commas, or copied straight from Excel). Department and batch can be left out.</p>
+                <textarea id="panel-paste" placeholder="President, Rahim Ahmed, CSE, 18th&#10;General Secretary, Nusrat Jahan, CSE, 19th"></textarea>
+                <button type="button" class="btn btn-sm btn-ghost" id="paste-btn" style="margin-top: 8px;">Add these people</button>
+            </details>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+                <button type="submit" class="btn">Save</button>
             </div>
         </form>
     </dialog>
