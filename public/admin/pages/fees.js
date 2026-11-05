@@ -16,7 +16,6 @@ function parseFee(text) {
     return match ? { amount: Number(match[0]), text: text.trim() } : null;
 }
 
-const NO_VALUE = '__none__';
 const isPaid = m => m.fee_paid === 1;
 
 async function load() {
@@ -25,7 +24,7 @@ async function load() {
         members = allMembers;
         renderStats(parseFee(settings.membership_fee));
         renderBreakdown('by-batch', 'batch', batchFilter, (a, b) => b.localeCompare(a, undefined, { numeric: true }));
-        renderBreakdown('by-department', 'department', departmentFilter, (a, b) => a.localeCompare(b));
+        renderBreakdown('by-department', 'department', departmentFilter, (a, b) => a.localeCompare(b), DEPARTMENTS);
         renderMonths();
         renderUnpaid();
         renderRecent();
@@ -56,30 +55,35 @@ function renderStats(fee) {
 
 // ---------- by batch / department ----------
 
-function renderBreakdown(boxId, field, select, sort) {
-    const groups = new Map();
-    members.forEach(m => {
-        const key = m[field] || NO_VALUE;
-        const g = groups.get(key) || { total: 0, paid: 0 };
+// known: values to list even with no members yet (the club's departments)
+function renderBreakdown(boxId, field, select, sort, known = []) {
+    const groups = new Map(known.map(key => [key, { total: 0, paid: 0 }]));
+    members.filter(m => m[field]).forEach(m => {
+        const g = groups.get(m[field]) || { total: 0, paid: 0 };
         g.total += 1;
         if (isPaid(m)) g.paid += 1;
-        groups.set(key, g);
+        groups.set(m[field], g);
     });
-    const keys = [...groups.keys()].sort((a, b) => (a === NO_VALUE) - (b === NO_VALUE) || sort(a, b));
-    // members without a batch or department are from batches/departments not listed separately
-    const label = key => (key === NO_VALUE ? (field === 'batch' ? 'Other batches' : 'Other departments') : field === 'batch' ? `Batch ${key}` : key);
+    const keys = [...groups.keys()].sort(sort);
+    const label = key => (field === 'batch' ? `Batch ${key}` : key);
+
+    // members with nothing saved can't be placed in a row, so say how many instead of hiding them
+    const missing = members.filter(m => !m[field]).length;
+    const missingNote = missing
+        ? `<p class="meta fee-missing">${missing} member${missing === 1 ? ' has' : 's have'} no ${field} saved yet. <a href="members.html">Add it in Members</a>.</p>`
+        : '';
 
     const box = document.getElementById(boxId);
-    box.innerHTML = keys.length ? keys.map(key => {
+    box.innerHTML = (keys.length ? keys.map(key => {
         const { total, paid } = groups.get(key);
-        const percent = Math.round((paid / total) * 100);
+        const percent = total ? Math.round((paid / total) * 100) : 0;
         return `<button type="button" class="fee-row" data-field="${field}" data-value="${escapeHtml(key)}"
                 aria-label="${escapeHtml(label(key))}: ${paid} of ${total} paid. Show who hasn't paid.">
             <span class="fee-row-label">${escapeHtml(label(key))}</span>
             <span class="fee-meter" aria-hidden="true"><span style="width: ${percent}%"></span></span>
-            <span class="fee-row-count">${paid}/${total} <small>${percent}%</small></span>
+            <span class="fee-row-count">${paid}/${total} <small>${total ? `${percent}%` : '–'}</small></span>
         </button>`;
-    }).join('') : '<div class="empty">No members yet.</div>';
+    }).join('') : `<div class="empty">No ${field === 'batch' ? 'batches' : 'departments'} saved yet.</div>`) + missingNote;
 
     // the matching filter above the unpaid list
     const current = select.value;
@@ -141,7 +145,7 @@ function renderMonths() {
 
 function shownUnpaid() {
     const q = search.value.trim().toLowerCase();
-    const matches = (select, value) => !select.value || (select.value === NO_VALUE ? !value : value === select.value);
+    const matches = (select, value) => !select.value || value === select.value;
     return members
         .filter(m => !isPaid(m))
         .filter(m => matches(batchFilter, m.batch) && matches(departmentFilter, m.department))

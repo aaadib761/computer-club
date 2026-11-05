@@ -235,6 +235,7 @@ dialog.modal h2 { font-size: 1.25rem; margin-bottom: 16px; }
 @media (min-width: 900px) { .fee-grid { grid-template-columns: 1fr 1fr; } }
 .fee-heading { font-size: 1.1rem; margin: 0 0 2px; }
 .fee-breakdown { display: grid; gap: 2px; }
+.fee-missing { margin: 10px 0 0; font-size: 0.85rem; }
 /* each group is a button: the whole row is the click target, not just the bar */
 .fee-row {
     display: grid;

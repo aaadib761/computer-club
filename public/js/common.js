@@ -79,8 +79,8 @@ function socialLinks(info) {
         .map(([key, label]) => ({ label, url: info[key] }));
 }
 
-// Department suggestions on the Join form and in Admin > Members. Add new departments here.
-const DEPARTMENTS = ['CSE', 'BBA', 'English', 'Law', 'Economics', 'Microbiology'];
+// Department suggestions on the Join form and in Admin > Members, and the rows on Admin > Fees. Add new departments here.
+const DEPARTMENTS = ['CSE', 'EEE', 'BBA', 'English', 'Law', 'Economics', 'Microbiology'];
 
 function fillDepartmentOptions(datalist, extra = []) {
     const all = [...new Set([...DEPARTMENTS, ...extra])].sort((a, b) => a.localeCompare(b));
