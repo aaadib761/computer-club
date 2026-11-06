@@ -17,14 +17,19 @@ function parseFee(text) {
 }
 
 const isPaid = m => m.fee_paid === 1;
+// "CSE-25"; a batch with no department saved is just "Batch 25"
+const batchName = m => (m.department ? `${m.department}-${m.batch}` : `Batch ${m.batch}`);
 
 async function load() {
     try {
         const [allMembers, settings] = await Promise.all([adminApi('/members'), api('/settings')]);
         members = allMembers;
         renderStats(parseFee(settings.membership_fee));
-        renderBreakdown('by-batch', 'batch', batchFilter, (a, b) => b.localeCompare(a, undefined, { numeric: true }));
-        renderBreakdown('by-department', 'department', departmentFilter, (a, b) => a.localeCompare(b), DEPARTMENTS);
+        // newest batch first, then by department within a batch
+        const batchOf = new Map(members.map(m => [batchName(m), m.batch || '']));
+        renderBreakdown('by-batch', 'batch', batchFilter, batchName, (a, b) =>
+            batchOf.get(b).localeCompare(batchOf.get(a), undefined, { numeric: true }) || a.localeCompare(b));
+        renderBreakdown('by-department', 'department', departmentFilter, m => m.department, (a, b) => a.localeCompare(b), DEPARTMENTS);
         renderMonths();
         renderUnpaid();
         renderRecent();
@@ -56,16 +61,16 @@ function renderStats(fee) {
 // ---------- by batch / department ----------
 
 // known: values to list even with no members yet (the club's departments)
-function renderBreakdown(boxId, field, select, sort, known = []) {
+function renderBreakdown(boxId, field, select, keyOf, sort, known = []) {
     const groups = new Map(known.map(key => [key, { total: 0, paid: 0 }]));
     members.filter(m => m[field]).forEach(m => {
-        const g = groups.get(m[field]) || { total: 0, paid: 0 };
+        const key = keyOf(m);
+        const g = groups.get(key) || { total: 0, paid: 0 };
         g.total += 1;
         if (isPaid(m)) g.paid += 1;
-        groups.set(m[field], g);
+        groups.set(key, g);
     });
     const keys = [...groups.keys()].sort(sort);
-    const label = key => (field === 'batch' ? `Batch ${key}` : key);
 
     // members with nothing saved can't be placed in a row, so say how many instead of hiding them
     const missing = members.filter(m => !m[field]).length;
@@ -78,8 +83,8 @@ function renderBreakdown(boxId, field, select, sort, known = []) {
         const { total, paid } = groups.get(key);
         const percent = total ? Math.round((paid / total) * 100) : 0;
         return `<button type="button" class="fee-row" data-field="${field}" data-value="${escapeHtml(key)}"
-                aria-label="${escapeHtml(label(key))}: ${paid} of ${total} paid. Show who hasn't paid.">
-            <span class="fee-row-label">${escapeHtml(label(key))}</span>
+                aria-label="${escapeHtml(key)}: ${paid} of ${total} paid. Show who hasn't paid.">
+            <span class="fee-row-label">${escapeHtml(key)}</span>
             <span class="fee-meter" aria-hidden="true"><span style="width: ${percent}%"></span></span>
             <span class="fee-row-count">${paid}/${total} <small>${total ? `${percent}%` : '–'}</small></span>
         </button>`;
@@ -88,15 +93,16 @@ function renderBreakdown(boxId, field, select, sort, known = []) {
     // the matching filter above the unpaid list
     const current = select.value;
     select.innerHTML = `<option value="">All ${field === 'batch' ? 'batches' : 'departments'}</option>` +
-        keys.map(key => `<option value="${escapeHtml(key)}">${escapeHtml(label(key))}</option>`).join('');
+        keys.map(key => `<option value="${escapeHtml(key)}">${escapeHtml(key)}</option>`).join('');
     select.value = keys.includes(current) ? current : '';
 }
 
 document.querySelector('.fee-grid').addEventListener('click', (e) => {
     const row = e.target.closest('.fee-row');
     if (!row) return;
-    const select = row.dataset.field === 'batch' ? batchFilter : departmentFilter;
-    select.value = row.dataset.value;
+    // only the clicked row's filter applies, so an earlier choice can't empty the list
+    batchFilter.value = row.dataset.field === 'batch' ? row.dataset.value : '';
+    departmentFilter.value = row.dataset.field === 'department' ? row.dataset.value : '';
     renderUnpaid();
     document.getElementById('unpaid').scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
@@ -148,7 +154,7 @@ function shownUnpaid() {
     const matches = (select, value) => !select.value || value === select.value;
     return members
         .filter(m => !isPaid(m))
-        .filter(m => matches(batchFilter, m.batch) && matches(departmentFilter, m.department))
+        .filter(m => matches(batchFilter, m.batch && batchName(m)) && matches(departmentFilter, m.department))
         .filter(m => !q || [m.name, m.student_id, m.club_id].some(v => (v || '').toLowerCase().includes(q)))
         .sort((a, b) => (b.batch || '').localeCompare(a.batch || '', undefined, { numeric: true }) || a.name.localeCompare(b.name));
 }
@@ -168,7 +174,7 @@ function renderUnpaid() {
             <div class="row-main">
                 <h3>${escapeHtml(m.name)}</h3>
                 <p class="meta">${[m.student_id && `ID ${escapeHtml(m.student_id)}`, m.club_id && `Club ${escapeHtml(m.club_id)}`,
-                    [m.department, m.batch && `Batch ${m.batch}`].filter(Boolean).map(escapeHtml).join(' · ')].filter(Boolean).join(' · ')}</p>
+                    escapeHtml(m.batch ? batchName(m) : m.department || '')].filter(Boolean).join(' · ')}</p>
                 <p class="meta">${escapeHtml(m.email)}${m.phone ? ` · ${escapeHtml(m.phone)}` : ''} · member since ${formatDate(m.created_at, { isUtc: true, withTime: false })}</p>
             </div>
             <div class="btn-group">
