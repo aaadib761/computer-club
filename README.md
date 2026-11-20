@@ -35,8 +35,8 @@ Built with Node.js, Express 5 and SQLite. The front end is plain HTML, CSS and J
 1. Get the code and install the packages:
 
    ```bash
-   git clone https://github.com/<your-username>/club-db.git
-   cd club-db
+   git clone https://github.com/aaadib761/computer-club.git
+   cd computer-club
    npm install
    ```
 
